@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Chat — Sign In</title>
   <meta name="description" content="Real-time chat app. Sign in or create an account to start chatting." />
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div class="auth-bg">
@@ -54,11 +54,11 @@
   </div>
 
   <script>
-    const API = '';
+    const API = 'http://localhost:8000';
 
     // Redirect if already logged in
     if (localStorage.getItem('token')) {
-      window.location.href = '/chat';
+      window.location.href = '/chat.html';
     }
 
     function switchTab(tab) {
@@ -95,7 +95,7 @@
         if (!res.ok) throw new Error(data.detail || 'Login failed');
         localStorage.setItem('token', data.access_token);
         localStorage.setItem('username', username);
-        window.location.href = '/chat';
+        window.location.href = '/chat.html';
       } catch (err) {
         showError(err.message);
       } finally {
@@ -124,7 +124,7 @@
         const loginData = await loginRes.json();
         localStorage.setItem('token', loginData.access_token);
         localStorage.setItem('username', username);
-        window.location.href = '/chat';
+        window.location.href = '/chat.html';
       } catch (err) {
         showError(err.message);
       } finally {

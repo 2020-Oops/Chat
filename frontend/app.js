@@ -10,9 +10,9 @@
   }
 
   // ── State ───────────────────────────────────────────
-  const API = '';
+  const API = 'http://localhost:8000';
   const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const WS_HOST = location.host;
+  const WS_HOST = 'localhost:8000';
 
   let currentRoom = 'general';
   let currentRoomType = 'channel'; // 'channel' | 'dm'
