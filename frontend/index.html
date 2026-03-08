@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat — Sign In</title>
+  <meta name="description" content="Real-time chat app. Sign in or create an account to start chatting." />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="auth-bg">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="logo-icon">💬</div>
+        <h1>ChatApp</h1>
+        <p>Real-time messaging</p>
+      </div>
+
+      <!-- Tabs -->
+      <div class="auth-tabs" role="tablist">
+        <button class="tab-btn active" id="tab-login" role="tab" onclick="switchTab('login')">Sign In</button>
+        <button class="tab-btn" id="tab-register" role="tab" onclick="switchTab('register')">Register</button>
+      </div>
+
+      <!-- Error -->
+      <div class="error-msg" id="error-msg"></div>
+
+      <!-- Login Form -->
+      <form id="form-login" onsubmit="handleLogin(event)" autocomplete="on">
+        <div class="form-group">
+          <label for="login-username">Username</label>
+          <input id="login-username" type="text" placeholder="Enter username" autocomplete="username" required />
+        </div>
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <input id="login-password" type="password" placeholder="Enter password" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn btn-primary" id="btn-login">Sign In</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="form-register" style="display:none" onsubmit="handleRegister(event)" autocomplete="on">
+        <div class="form-group">
+          <label for="reg-username">Username</label>
+          <input id="reg-username" type="text" placeholder="Choose a username" autocomplete="username" required minlength="3" maxlength="32" />
+        </div>
+        <div class="form-group">
+          <label for="reg-password">Password</label>
+          <input id="reg-password" type="password" placeholder="Create a password" autocomplete="new-password" required minlength="6" />
+        </div>
+        <button type="submit" class="btn btn-primary" id="btn-register">Create Account</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const API = '';
+
+    // Redirect if already logged in
+    if (localStorage.getItem('token')) {
+      window.location.href = '/chat';
+    }
+
+    function switchTab(tab) {
+      document.getElementById('form-login').style.display = tab === 'login' ? '' : 'none';
+      document.getElementById('form-register').style.display = tab === 'register' ? '' : 'none';
+      document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+      document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+      showError('');
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.classList.toggle('show', !!msg);
+    }
+
+    function setLoading(btnId, loading) {
+      const btn = document.getElementById(btnId);
+      btn.disabled = loading;
+      btn.textContent = loading ? 'Please wait…' : (btnId === 'btn-login' ? 'Sign In' : 'Create Account');
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      showError('');
+      setLoading('btn-login', true);
+      const username = document.getElementById('login-username').value.trim();
+      const password = document.getElementById('login-password').value;
+
+      try {
+        const body = new URLSearchParams({ username, password });
+        const res = await fetch(`${API}/api/login`, { method: 'POST', body });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Login failed');
+        localStorage.setItem('token', data.access_token);
+        localStorage.setItem('username', username);
+        window.location.href = '/chat';
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        setLoading('btn-login', false);
+      }
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      showError('');
+      setLoading('btn-register', true);
+      const username = document.getElementById('reg-username').value.trim();
+      const password = document.getElementById('reg-password').value;
+
+      try {
+        const res = await fetch(`${API}/api/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Registration failed');
+        // Auto-login after register
+        const loginBody = new URLSearchParams({ username, password });
+        const loginRes = await fetch(`${API}/api/login`, { method: 'POST', body: loginBody });
+        const loginData = await loginRes.json();
+        localStorage.setItem('token', loginData.access_token);
+        localStorage.setItem('username', username);
+        window.location.href = '/chat';
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        setLoading('btn-register', false);
+      }
+    }
+  </script>
+</body>
+</html>
