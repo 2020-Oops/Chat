@@ -17,13 +17,7 @@
         <button class="btn-logout" id="btn-logout" title="Sign out" onclick="logout()">⏻</button>
       </div>
 
-      <!-- Channels -->
-      <div class="room-list-header">Channels</div>
-      <ul class="room-list" id="room-list">
-        <li class="active" data-room="general" onclick="switchRoom('general')"><span class="room-icon">#</span> general</li>
-        <li data-room="random" onclick="switchRoom('random')"><span class="room-icon">#</span> random</li>
-        <li data-room="tech" onclick="switchRoom('tech')"><span class="room-icon">#</span> tech</li>
-      </ul>
+      <!-- Channels Removed for DM-only -->
 
       <!-- Direct Messages -->
       <div class="room-list-header dm-header">
@@ -44,8 +38,8 @@
 
     <!-- ── Header ─────────────────────────────────── -->
     <header class="chat-header">
-      <span class="chat-header-room-icon" id="header-icon">#</span>
-      <span class="chat-header-room" id="header-room">general</span>
+      <span class="chat-header-room-icon" id="header-icon"></span>
+      <span class="chat-header-room" id="header-room">Select a user</span>
       <span class="chat-header-meta" id="header-meta"></span>
       <div class="connection-badge disconnected" id="conn-badge">
         <span class="badge-dot"></span>
@@ -65,7 +59,8 @@
         <textarea
           id="message-input"
           class="message-input"
-          placeholder="Message #general…"
+          placeholder="Select a user to chat..."
+          disabled
           rows="1"
           aria-label="Message input"
           maxlength="2000"

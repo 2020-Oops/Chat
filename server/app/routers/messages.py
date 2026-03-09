@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api", tags=["messages"])
 
 @router.get("/messages", response_model=list[MessageOut])
 async def get_messages(
-    room: str = Query("general"),
+    room: str = Query(...),
     limit: int = Query(50, ge=1, le=200),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

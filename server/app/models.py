@@ -24,7 +24,7 @@ class Message(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    room: Mapped[str] = mapped_column(String(64), default="general", index=True)
+    room: Mapped[str] = mapped_column(String(64), index=True)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

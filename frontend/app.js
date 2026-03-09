@@ -15,8 +15,8 @@
   const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_HOST = 'chat-server-154708099195.us-central1.run.app';
 
-  let currentRoom = 'general';
-  let currentRoomType = 'channel'; // 'channel' | 'dm'
+  let currentRoom = null;
+  let currentRoomType = 'dm'; // 'channel' | 'dm'
   let currentDmPeer = null; // username of the DM peer
   let socket = null;
   let reconnectTimer = null;
@@ -102,8 +102,7 @@
         ${u === ME ? '<span class="me-badge">you</span>' : ''}
       </li>
     `).join('');
-    const total = currentRoomType === 'channel' ? `${users.length} online` : '';
-    headerMeta.textContent = total;
+    headerMeta.textContent = '';
   }
 
   // ── DM sidebar ────────────────────────────────────────
@@ -150,8 +149,6 @@
     const room = dmRoomName(ME, peer);
     currentRoomType = 'dm';
 
-    // Update channel sidebar: deactivate all channels
-    document.querySelectorAll('#room-list li').forEach(li => li.classList.remove('active'));
     // Update DM sidebar: activate peer
     dmList.querySelectorAll('li').forEach(li => {
       li.classList.toggle('active', li.dataset.peer === peer);
@@ -165,6 +162,7 @@
     headerRoom.textContent = peer;
     headerMeta.textContent = 'Direct Message';
     messageInput.placeholder = `Message @${peer}…`;
+    messageInput.removeAttribute('disabled');
 
     messagesArea.innerHTML = '';
     onlineList.innerHTML = '';
@@ -188,8 +186,8 @@
     }
   }
 
-  // ── WebSocket ─────────────────────────────────────────
   function connect(room) {
+    if (!room) return;
     if (socket) {
       socket.onclose = null;
       socket.close();
@@ -229,7 +227,7 @@
       connText.textContent = `Reconnecting in ${Math.round(reconnectDelay / 1000)}s…`;
       reconnectTimer = setTimeout(() => {
         reconnectDelay = Math.min(reconnectDelay * 2, 30000);
-        connect(currentRoom);
+        if (currentRoom) connect(currentRoom);
       }, reconnectDelay);
     };
 
@@ -237,27 +235,7 @@
     currentRoom = room;
   }
 
-  // ── Channel switching ──────────────────────────────────
-  window.switchRoom = function (room) {
-    if (room === currentRoom && currentRoomType === 'channel') return;
-    currentRoomType = 'channel';
-    currentDmPeer = null;
-
-    headerIcon.textContent = '#';
-    headerRoom.textContent = room;
-    headerMeta.textContent = '';
-    messageInput.placeholder = `Message #${room}…`;
-
-    document.querySelectorAll('#room-list li').forEach(li => {
-      li.classList.toggle('active', li.dataset.room === room);
-    });
-    dmList.querySelectorAll('li').forEach(li => li.classList.remove('active'));
-
-    messagesArea.innerHTML = '';
-    onlineList.innerHTML = '';
-
-    loadHistory(room).then(() => connect(room));
-  };
+  // ── Channel switching is removed for DM-only mode ──
 
   // ── Send message ───────────────────────────────────────
   function sendMessage() {
@@ -292,6 +270,5 @@
 
   // ── Init ───────────────────────────────────────────────
   loadUsers();
-  loadHistory(currentRoom).then(() => connect(currentRoom));
 
 })();

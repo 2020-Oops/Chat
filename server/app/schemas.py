@@ -33,7 +33,7 @@ class TokenData(BaseModel):
 
 class MessageCreate(BaseModel):
     content: str
-    room: str = "general"
+    room: str
 
 
 class MessageOut(BaseModel):
