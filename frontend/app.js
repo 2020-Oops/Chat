@@ -10,9 +10,10 @@
   }
 
   // ── State ───────────────────────────────────────────
-  const API = 'http://localhost:8000';
+  // Cloud Run server (deployed) — change to 'http://localhost:8000' for local dev
+  const API = 'https://chat-server-154708099195.us-central1.run.app';
   const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const WS_HOST = 'localhost:8000';
+  const WS_HOST = 'chat-server-154708099195.us-central1.run.app';
 
   let currentRoom = 'general';
   let currentRoomType = 'channel'; // 'channel' | 'dm'

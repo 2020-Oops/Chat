@@ -2,7 +2,8 @@ fastapi==0.111.0
 uvicorn[standard]==0.29.0
 sqlalchemy[asyncio]>=2.0.36
 aiosqlite==0.20.0
-# asyncpg==0.29.0  # Uncomment for PostgreSQL support (requires C++ Build Tools on Windows)
+aiofiles>=23.2.1
+asyncpg==0.29.0  # PostgreSQL driver for Cloud SQL
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.9

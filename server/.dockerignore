@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+cloudrun-env.yaml
+chat.db
+logs/
+tests/
+.pytest_cache/
+pytest.ini
+*.egg-info/

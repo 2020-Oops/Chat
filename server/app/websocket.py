@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime, timezone
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -8,6 +9,21 @@ from sqlalchemy import select
 from app.auth import get_current_user_ws
 from app.database import AsyncSessionLocal
 from app.models import Message
+
+
+async def log_to_file(room: str, username: str, content: str) -> None:
+    """Append a message to logs/{room}.log (required by assignment)."""
+    os.makedirs("logs", exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {username}: {content}\n"
+    try:
+        import aiofiles
+        async with aiofiles.open(f"logs/{room}.log", mode="a", encoding="utf-8") as f:
+            await f.write(line)
+    except ImportError:
+        # Fallback to sync if aiofiles not installed yet
+        with open(f"logs/{room}.log", mode="a", encoding="utf-8") as f:
+            f.write(line)
 
 
 class ConnectionManager:
@@ -109,6 +125,9 @@ async def websocket_endpoint(websocket: WebSocket, room: str, token: str):
                     },
                     "online": manager.online_users(room),
                 })
+
+                # Log to file
+                await log_to_file(room, user.username, content)
 
         except WebSocketDisconnect:
             manager.disconnect(websocket, room)
