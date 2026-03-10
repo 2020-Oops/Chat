@@ -11,6 +11,7 @@ from app.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("SERVERSIDE STARTUP: chat-server is starting up...")
     await init_db()
     yield
 
@@ -23,9 +24,10 @@ app = FastAPI(
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
+# Forced explicit CORS for the frontend origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["https://chat-frontend-154708099195.us-central1.run.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -39,4 +41,3 @@ app.include_router(messages.router)
 @app.websocket("/ws/{room}")
 async def ws_route(websocket: WebSocket, room: str, token: str):
     await websocket_endpoint(websocket, room, token)
-
