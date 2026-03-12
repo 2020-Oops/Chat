@@ -1,7 +1,6 @@
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install --production
+FROM nginx:1.27-alpine
+
+WORKDIR /usr/share/nginx/html
 COPY . .
-ENV PORT=8080
-CMD ["node", "server.js"]
+
+EXPOSE 80

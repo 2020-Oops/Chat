@@ -40,7 +40,10 @@
   const dmEmpty = document.getElementById('dm-empty');
   const groupList = document.getElementById('group-list');
   const groupEmpty = document.getElementById('group-empty');
-  
+  const sidebarOverlay = document.getElementById('sidebar-overlay');
+  const btnSidebar = document.getElementById('btn-sidebar');
+  const btnSidebarClose = document.getElementById('btn-sidebar-close');
+
   // Modals & Group actions
   const createGroupModal = document.getElementById('create-group-modal');
   const btnCreateGroup = document.getElementById('btn-create-group');
@@ -52,6 +55,20 @@
   const btnAddMember = document.getElementById('btn-add-member');
   const btnLeaveGroup = document.getElementById('btn-leave-group');
   const btnDeleteGroup = document.getElementById('btn-delete-group');
+
+  function setSidebar(open) {
+    document.body.classList.toggle('sidebar-open', open);
+  }
+
+  if (btnSidebar) {
+    btnSidebar.addEventListener('click', () => setSidebar(true));
+  }
+  if (btnSidebarClose) {
+    btnSidebarClose.addEventListener('click', () => setSidebar(false));
+  }
+  if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', () => setSidebar(false));
+  }
 
   // ── Utility ─────────────────────────────────────────
   function formatTime(iso) {
@@ -198,6 +215,7 @@
     currentGroupId = null;
     const room = dmRoomName(ME, peer);
     currentRoomType = 'dm';
+    setSidebar(false);
 
     // Update DM sidebar: activate peer
     dmList.querySelectorAll('li').forEach(li => {
@@ -232,6 +250,7 @@
     currentDmPeer = null;
     const room = `group_${groupId}`;
     currentRoomType = 'group';
+    setSidebar(false);
 
     // Update sidebar
     groupList.querySelectorAll('li').forEach(li => {

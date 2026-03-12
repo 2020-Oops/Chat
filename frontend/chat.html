@@ -32,6 +32,7 @@
     <aside class="sidebar">
       <div class="sidebar-header">
         <div class="sidebar-logo">💬 <span>Chat</span>App</div>
+        <button class="btn-icon btn-sidebar-close" id="btn-sidebar-close" title="Close menu" aria-label="Close menu">&#10005;</button>
         <button class="btn-logout" id="btn-logout" title="Sign out" onclick="logout()">⏻</button>
       </div>
 
@@ -71,6 +72,8 @@
       </div>
     </aside>
 
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
     <!-- ── Modals ──────────────────────────────────── -->
     <div id="create-group-modal" class="modal" style="display: none;">
       <div class="modal-content">
@@ -103,6 +106,7 @@
     <!-- ── Header ─────────────────────────────────── -->
     <header class="chat-header">
       <div class="chat-header-info">
+        <button class="btn-icon btn-sidebar" id="btn-sidebar" title="Open menu" aria-label="Open menu">&#9776;</button>
         <span class="chat-header-room-icon" id="header-icon"></span>
         <span class="chat-header-room" id="header-room">Select a user or group</span>
         <span class="chat-header-meta" id="header-meta"></span>
