@@ -25,6 +25,9 @@
   let socket = null;
   let reconnectTimer = null;
   let reconnectDelay = 1000;
+  
+  let allUsersCache = []; // To power the add-member user selection
+  let currentGroupMembersCache = [];
 
   // ── DOM refs ────────────────────────────────────────
   const messagesArea = document.getElementById('messages-area');
@@ -51,10 +54,30 @@
   const btnSubmitGroup = document.getElementById('btn-submit-group');
   const newGroupNameInput = document.getElementById('new-group-name');
   
+  const createGroupSearch = document.getElementById('create-group-search');
+  const createGroupUsers = document.getElementById('create-group-users');
+  let pendingCreateGroupMembers = [];
+  
   // Header Actions
   const btnAddMember = document.getElementById('btn-add-member');
   const btnLeaveGroup = document.getElementById('btn-leave-group');
   const btnDeleteGroup = document.getElementById('btn-delete-group');
+  
+  const deleteGroupModal = document.getElementById('delete-group-modal');
+  const btnCancelDeleteGroup = document.getElementById('btn-cancel-delete-group');
+  const btnConfirmDeleteGroup = document.getElementById('btn-confirm-delete-group');
+  
+  const addMemberModal = document.getElementById('add-member-modal');
+  const searchMemberInput = document.getElementById('search-member-input');
+  const searchMemberResults = document.getElementById('search-member-results');
+  const btnCancelMember = document.getElementById('btn-cancel-member');
+
+  // Account Management
+  const btnDeleteAccount = document.getElementById('btn-delete-account');
+  const deleteAccountModal = document.getElementById('delete-account-modal');
+  const btnCancelDelete = document.getElementById('btn-cancel-delete');
+  const btnConfirmDelete = document.getElementById('btn-confirm-delete');
+  const deletePasswordInput = document.getElementById('delete-password-input');
 
   function setSidebar(open) {
     document.body.classList.toggle('sidebar-open', open);
@@ -68,6 +91,47 @@
   }
   if (sidebarOverlay) {
     sidebarOverlay.addEventListener('click', () => setSidebar(false));
+  }
+
+  // ── Toast Notifications ──────────────────────────────
+  const toastContainer = document.getElementById('toast-container');
+
+  function showToast(message, type = 'info') {
+    if (!toastContainer) return;
+    const toast = document.createElement('div');
+    // type can be 'info', 'success', 'error', 'warning'
+    toast.className = `toast toast-${type}`;
+    
+    // Auto-remove icon depending on type
+    const icons = {
+      success: '✅ ',
+      error: '❌ ',
+      warning: '⚠️ ',
+      info: 'ℹ️ '
+    };
+    const icon = icons[type] || '';
+
+    toast.innerHTML = `
+      <div class="toast-message">${icon}${escapeHtml(message)}</div>
+      <button class="toast-close" title="Dismiss" aria-label="Close message">&times;</button>
+    `;
+
+    toastContainer.appendChild(toast);
+
+    // Close button logic
+    const closeBtn = toast.querySelector('.toast-close');
+    
+    const removeToast = () => {
+      toast.classList.add('hiding');
+      toast.addEventListener('animationend', () => {
+        toast.remove();
+      });
+    };
+
+    closeBtn.addEventListener('click', removeToast);
+
+    // Auto dismiss after 4 seconds
+    setTimeout(removeToast, 4000);
   }
 
   // ── Utility ─────────────────────────────────────────
@@ -141,6 +205,41 @@
   }
 
   // ── DM sidebar ────────────────────────────────────────
+  
+  function updateSidebarItem(roomStr, content, unread = false) {
+    let li = null;
+    let badgeId = null;
+    
+    // Check if it's a DM (roomStr = dm_userX_userY)
+    if (roomStr && roomStr.startsWith('dm_')) {
+      // Find which peer we are talking to in this DM
+      const parts = roomStr.substring(3).split('_');
+      const peer = parts[0] === ME ? parts[1] : parts[0];
+      li = document.querySelector(`#dm-list li[data-peer="${CSS.escape(peer)}"]`);
+      badgeId = `unread-${CSS.escape(peer)}`;
+    } 
+    // Check if it's a Group
+    else if (roomStr && roomStr.startsWith('group_')) {
+      const groupId = roomStr.substring(6);
+      li = document.querySelector(`#group-list li[data-group="${CSS.escape(groupId)}"]`);
+      badgeId = `unread-group-${CSS.escape(groupId)}`;
+    }
+    
+    if (li) {
+      const msgSpan = li.querySelector('.dm-last-message');
+      if (msgSpan) {
+        msgSpan.textContent = content; // raw text, browser escapes
+      }
+      
+      if (unread && badgeId) {
+        const badge = document.getElementById(badgeId);
+        if (badge) {
+          badge.style.display = 'inline-block';
+        }
+      }
+    }
+  }
+
   function renderDmList(users) {
     if (!users || users.length === 0) {
       dmEmpty.style.display = '';
@@ -154,10 +253,21 @@
     users.forEach(user => {
       const li = document.createElement('li');
       li.dataset.peer = user.username;
-      li.className = '';
+      
+      // Persist active state if this is the currently opened DM
+      if (currentRoomType === 'dm' && currentDmPeer === user.username) {
+        li.className = 'active';
+      } else {
+        li.className = '';
+      }
+      
+      const lastMsgText = user.last_message || 'Чат порожній';
       li.innerHTML = `
         <span class="dm-avatar">${avatarInitial(user.username)}</span>
-        <span class="dm-username">${escapeHtml(user.username)}</span>
+        <div class="dm-info">
+          <span class="dm-username">${escapeHtml(user.username)}</span>
+          <span class="dm-last-message">${escapeHtml(lastMsgText)}</span>
+        </div>
         <span class="dm-unread" id="unread-${CSS.escape(user.username)}" style="display:none"></span>
       `;
       li.addEventListener('click', () => openDm(user.username));
@@ -176,6 +286,7 @@
       
       if (usersRes.ok) {
         const users = await usersRes.json();
+        allUsersCache = users;
         renderDmList(users);
       }
       if (groupsRes.ok) {
@@ -199,10 +310,21 @@
     groups.forEach(group => {
       const li = document.createElement('li');
       li.dataset.group = group.id;
-      li.className = '';
+
+      // Persist active state if this is the currently opened Group
+      if (currentRoomType === 'group' && currentGroupId === group.id) {
+        li.className = 'active';
+      } else {
+        li.className = '';
+      }
+
+      const lastMsgText = group.last_message || 'Чат порожній';
       li.innerHTML = `
         <span class="dm-avatar">👥</span>
-        <span class="dm-username">${escapeHtml(group.name)}</span>
+        <div class="dm-info">
+          <span class="dm-username">${escapeHtml(group.name)}</span>
+          <span class="dm-last-message">${escapeHtml(lastMsgText)}</span>
+        </div>
         <span class="dm-unread" id="unread-group-${group.id}" style="display:none"></span>
       `;
       li.addEventListener('click', () => openGroup(group.id, group.name, group.creator_id));
@@ -291,7 +413,8 @@
       });
       if (!res.ok) return;
       const members = await res.json();
-      renderOnlineList(members.map(m => m.user.username));
+      currentGroupMembersCache = members.map(m => m.user.username);
+      renderOnlineList(currentGroupMembersCache);
     } catch (e) {
       console.warn('Failed to load members', e);
     }
@@ -336,15 +459,25 @@
       try { data = JSON.parse(event.data); } catch { return; }
 
       if (data.type === 'message') {
-        renderMessage(data);
+        if (data.room === currentRoom) {
+          renderMessage(data);
+        } else {
+          // Message for a different room, update sidebar and show unread
+          updateSidebarItem(data.room, data.content, true);
+        }
+        
+        // Always update sidebar message text dynamically
+        updateSidebarItem(data.room, data.content, false);
+        
       } else if (data.type === 'system') {
-        // Only show join/leave in channels, not in DMs
         if (currentRoomType === 'channel') {
           renderSystem(data.content);
         }
-        // System messages not filtered currently
+      } else if (data.type === 'group_joined') {
+        // We were added to a new group, or we created one!
+        loadUsers();
       }
-      // For groups, we render member list via API instead of WS presence
+      
       if (data.online && currentRoomType === 'channel') {
         renderOnlineList(data.online);
       }
@@ -400,79 +533,229 @@
 
   // ── Group Management Logic ──────────────────────────────────────────
   
+  function renderCreateGroupUsers(query = '') {
+    if (!createGroupUsers) return;
+    createGroupUsers.innerHTML = '';
+    
+    const queryLower = query.toLowerCase();
+    const availableUsers = allUsersCache.filter(u => {
+      if (u.username === ME) return false;
+      if (queryLower && !u.username.toLowerCase().includes(queryLower)) return false;
+      return true;
+    });
+
+    if (availableUsers.length === 0) {
+      createGroupUsers.innerHTML = '<li class="dm-empty"><span style="font-size:0.8rem;color:var(--text-muted);">No users found</span></li>';
+      return;
+    }
+
+    availableUsers.forEach(u => {
+      const li = document.createElement('li');
+      if (pendingCreateGroupMembers.includes(u.username)) {
+        li.classList.add('selected');
+      }
+      li.innerHTML = `
+        <span class="dm-avatar">${avatarInitial(u.username)}</span>
+        <span class="dm-username">${escapeHtml(u.username)}</span>
+      `;
+      li.addEventListener('click', () => {
+        if (pendingCreateGroupMembers.includes(u.username)) {
+          pendingCreateGroupMembers = pendingCreateGroupMembers.filter(n => n !== u.username);
+          li.classList.remove('selected');
+        } else {
+          pendingCreateGroupMembers.push(u.username);
+          li.classList.add('selected');
+        }
+      });
+      createGroupUsers.appendChild(li);
+    });
+  }
+
   btnCreateGroup.addEventListener('click', () => {
     createGroupModal.style.display = 'flex';
-    newGroupNameInput.focus();
+    newGroupNameInput.value = '';
+    pendingCreateGroupMembers = [];
+    if (createGroupSearch) {
+      createGroupSearch.value = '';
+      createGroupSearch.focus();
+    }
+    renderCreateGroupUsers();
   });
+  
+  if (createGroupSearch) {
+    createGroupSearch.addEventListener('input', (e) => {
+      renderCreateGroupUsers(e.target.value);
+    });
+  }
   
   btnCancelGroup.addEventListener('click', () => {
     createGroupModal.style.display = 'none';
     newGroupNameInput.value = '';
+    pendingCreateGroupMembers = [];
   });
   
   btnSubmitGroup.addEventListener('click', async () => {
     const name = newGroupNameInput.value.trim();
     if (!name) return;
     try {
+      btnSubmitGroup.disabled = true;
       const res = await fetch(`${API}/api/groups`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ 
+          name, 
+          initial_members: pendingCreateGroupMembers 
+        })
       });
       if (res.ok) {
         createGroupModal.style.display = 'none';
         newGroupNameInput.value = '';
+        pendingCreateGroupMembers = [];
+        showToast('Group created successfully.', 'success');
         loadUsers(); // Refresh groups
       } else {
         const error = await res.json();
-        alert(error.detail || 'Failed to create group');
+        showToast(error.detail || 'Failed to create group', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Error creating group');
+      showToast('Error creating group', 'error');
+    } finally {
+      btnSubmitGroup.disabled = false;
     }
   });
 
-  btnAddMember.addEventListener('click', async () => {
-    if (!currentGroupId) return;
-    const username = prompt('Enter username to add to this group:');
-    if (!username) return;
-    try {
-      const res = await fetch(`${API}/api/groups/${currentGroupId}/members?username=${encodeURIComponent(username)}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${TOKEN}` }
-      });
-      if (res.ok) {
-        loadGroupMembers(currentGroupId); // Refresh member list
-        alert(`${username} has been added.`);
-      } else {
-        const error = await res.json();
-        alert(error.detail || 'Failed to add user');
-      }
-    } catch (e) {
-      alert('Error adding user');
-    }
-  });
+  // ── Add Member to Group Modal Logic ────────────────────────────────────
+  function renderMemberSearchResults(query = '') {
+    if (!searchMemberResults) return;
+    searchMemberResults.innerHTML = '';
+    
+    // Filter available users: Exclude myself, exclude current members, match query
+    const queryLower = query.toLowerCase();
+    const availableUsers = allUsersCache.filter(u => {
+      const username = u.username;
+      if (username === ME) return false;
+      if (currentGroupMembersCache.includes(username)) return false;
+      if (queryLower && !username.toLowerCase().includes(queryLower)) return false;
+      return true;
+    });
 
-  btnDeleteGroup.addEventListener('click', async () => {
-    if (!currentGroupId) return;
-    if (!confirm('Are you sure you want to delete this group? Only the creator can do this.')) return;
-    try {
-      const res = await fetch(`${API}/api/groups/${currentGroupId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${TOKEN}` }
-      });
-      if (res.ok || res.status === 204) {
-        alert('Group deleted.');
-        window.location.reload();
-      } else {
-        const error = await res.json();
-        alert(error.detail || 'Failed to delete group (must be creator).');
-      }
-    } catch (e) {
-      alert('Error deleting group');
+    if (availableUsers.length === 0) {
+      searchMemberResults.innerHTML = '<li class="dm-empty"><span style="font-size:0.8rem;color:var(--text-muted);">No users found</span></li>';
+      return;
     }
-  });
+
+    // Render list
+    availableUsers.forEach(u => {
+      const li = document.createElement('li');
+      li.style.cursor = 'pointer';
+      li.innerHTML = `
+        <span class="dm-avatar">${avatarInitial(u.username)}</span>
+        <span class="dm-username">${escapeHtml(u.username)}</span>
+      `;
+      li.addEventListener('click', async () => {
+        try {
+          const res = await fetch(`${API}/api/groups/${currentGroupId}/members?username=${encodeURIComponent(u.username)}`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${TOKEN}` }
+          });
+          if (res.ok) {
+            loadGroupMembers(currentGroupId); // Refresh member list
+            showToast(`${u.username} has been added to the group.`, 'success');
+            if (addMemberModal) addMemberModal.style.display = 'none';
+          } else {
+            const error = await res.json();
+            showToast(error.detail || 'Failed to add user', 'error');
+          }
+        } catch (e) {
+          showToast('Error adding user', 'error');
+        }
+      });
+      searchMemberResults.appendChild(li);
+    });
+  }
+
+  if (btnAddMember) {
+    btnAddMember.addEventListener('click', () => {
+      if (!currentGroupId) return;
+      if (addMemberModal) {
+        addMemberModal.style.display = 'flex';
+        if (searchMemberInput) {
+          searchMemberInput.value = '';
+          searchMemberInput.focus();
+        }
+        renderMemberSearchResults();
+      }
+    });
+  }
+
+  if (btnCancelMember) {
+    btnCancelMember.addEventListener('click', () => {
+      if (addMemberModal) addMemberModal.style.display = 'none';
+    });
+  }
+
+  if (searchMemberInput) {
+    searchMemberInput.addEventListener('input', (e) => {
+      renderMemberSearchResults(e.target.value);
+    });
+  }
+
+  // ── Group Deletion Custom Modal Logic ────────────────────────────────────
+  
+  if (btnDeleteGroup) {
+    btnDeleteGroup.addEventListener('click', () => {
+      if (!currentGroupId) return;
+      if (deleteGroupModal) {
+        deleteGroupModal.style.display = 'flex';
+      }
+    });
+  }
+  
+  if (btnCancelDeleteGroup) {
+    btnCancelDeleteGroup.addEventListener('click', () => {
+      if (deleteGroupModal) {
+        deleteGroupModal.style.display = 'none';
+      }
+    });
+  }
+  
+  if (btnConfirmDeleteGroup) {
+    btnConfirmDeleteGroup.addEventListener('click', async () => {
+      if (!currentGroupId) return;
+      try {
+        btnConfirmDeleteGroup.disabled = true;
+        const res = await fetch(`${API}/api/groups/${currentGroupId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${TOKEN}` }
+        });
+        if (res.ok || res.status === 204) {
+          if (deleteGroupModal) deleteGroupModal.style.display = 'none';
+          showToast('Group deleted.', 'success');
+          messagesArea.innerHTML = '';
+          onlineList.innerHTML = '';
+          headerRoom.textContent = 'Select a chat';
+          headerMeta.textContent = '';
+          messageInput.setAttribute('disabled', 'true');
+          btnAddMember.style.display = 'none';
+          btnLeaveGroup.style.display = 'none';
+          btnDeleteGroup.style.display = 'none';
+          currentGroupId = null;
+          currentRoomType = 'dm'; // fallback
+          currentDmPeer = null;
+          if (socket) { socket.close(); socket = null; }
+          loadUsers();
+        } else {
+          const error = await res.json();
+          showToast(error.detail || 'Failed to delete group (must be creator).', 'error');
+        }
+      } catch (e) {
+        showToast('Error deleting group', 'error');
+      } finally {
+        btnConfirmDeleteGroup.disabled = false;
+      }
+    });
+  }
   
   btnLeaveGroup.addEventListener('click', async () => {
     if (!currentGroupId) return;
@@ -486,16 +769,78 @@
         headers: { Authorization: `Bearer ${TOKEN}` }
       });
       if (res.ok || res.status === 204) {
-        alert('Left group.');
-        window.location.reload();
+        showToast('Left group.', 'success');
+        messagesArea.innerHTML = '';
+        onlineList.innerHTML = '';
+        headerRoom.textContent = 'Select a chat';
+        headerMeta.textContent = '';
+        messageInput.setAttribute('disabled', 'true');
+        btnAddMember.style.display = 'none';
+        btnLeaveGroup.style.display = 'none';
+        btnDeleteGroup.style.display = 'none';
+        currentGroupId = null;
+        currentRoomType = 'dm'; // fallback
+        currentDmPeer = null;
+        if (socket) { socket.close(); socket = null; }
+        loadUsers();
       } else {
         const error = await res.json();
-        alert(error.detail || 'Failed to leave group / Creator cannot leave.');
+        showToast(error.detail || 'Failed to leave group / Creator cannot leave.', 'error');
       }
     } catch (e) {
-      alert('Error leaving group');
+      showToast('Error leaving group', 'error');
     }
   });
+
+  // ── Account Deletion ──────────────────────────────────────
+  if (btnDeleteAccount) {
+    btnDeleteAccount.addEventListener('click', () => {
+      deleteAccountModal.style.display = 'flex';
+      deletePasswordInput.value = '';
+      deletePasswordInput.focus();
+    });
+  }
+
+  if (btnCancelDelete) {
+    btnCancelDelete.addEventListener('click', () => {
+      deleteAccountModal.style.display = 'none';
+      deletePasswordInput.value = '';
+    });
+  }
+
+  if (btnConfirmDelete) {
+    btnConfirmDelete.addEventListener('click', async () => {
+      const password = deletePasswordInput.value;
+      if (!password) {
+        showToast('Please enter your password to confirm.', 'warning');
+        return;
+      }
+      btnConfirmDelete.disabled = true;
+      try {
+        const res = await fetch(`${API}/api/me`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${TOKEN}`,
+          },
+          body: JSON.stringify({ password }),
+        });
+        
+        if (res.ok || res.status === 204) {
+          showToast('Account deleted successfully.', 'success');
+          setTimeout(() => logout(), 1000);
+        } else {
+          const error = await res.json();
+          showToast(error.detail || 'Failed to delete account (incorrect password?).', 'error');
+        }
+      } catch (e) {
+        console.error(e);
+        showToast('Error deleting account', 'error');
+      } finally {
+        btnConfirmDelete.disabled = false;
+      }
+    });
+  }
 
   // ── Logout ─────────────────────────────────────────────
   window.logout = function () {

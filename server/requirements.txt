@@ -3,7 +3,7 @@ uvicorn[standard]==0.29.0
 sqlalchemy[asyncio]>=2.0.36
 aiosqlite==0.20.0
 aiofiles>=23.2.1
-asyncpg==0.29.0  # PostgreSQL driver for Cloud SQL
+asyncpg>=0.30.0  # PostgreSQL driver for Cloud SQL
 python-jose[cryptography]==3.3.0
 bcrypt==4.1.2
 alembic==1.13.1

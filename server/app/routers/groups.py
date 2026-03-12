@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models import Group, GroupMember, User
+from app.models import Group, GroupMember, User, Message
 from app.schemas import GroupCreate, GroupOut, GroupMemberOut
 from app.websocket import manager
 
@@ -35,7 +35,27 @@ async def create_group(
     # 2. Add creator as first member
     member = GroupMember(group_id=new_group.id, user_id=current_user.id)
     db.add(member)
+    
+    # 3. Add initial members if provided
+    added_users = []
+    if getattr(group_in, 'initial_members', None):
+        for username in set(group_in.initial_members):
+            if username == current_user.username:
+                continue
+            res = await db.execute(select(User).where(User.username == username))
+            target_user = res.scalars().first()
+            if target_user:
+                db.add(GroupMember(group_id=new_group.id, user_id=target_user.id))
+                added_users.append(target_user.username)
+                
     await db.commit()
+    
+    # 4. Notify added users
+    for username in added_users:
+        await manager.send_to_user(username, {
+            "type": "group_joined",
+            "group_id": new_group.id
+        })
     
     return new_group
 
@@ -59,7 +79,29 @@ async def get_my_groups(
         
     stmt = stmt.order_by(Group.name).limit(limit)
     result = await db.execute(stmt)
-    return result.scalars().all()
+    groups = result.scalars().all()
+    
+    out_groups = []
+    for g in groups:
+        msg_stmt = (
+            select(Message.content)
+            .where(
+                or_(
+                    Message.group_id == g.id,
+                    Message.room == f"group_{g.id}"
+                )
+            )
+            .order_by(Message.timestamp.desc())
+            .limit(1)
+        )
+        msg_result = await db.execute(msg_stmt)
+        last_msg = msg_result.scalar_one_or_none()
+        
+        g_out = GroupOut.model_validate(g)
+        g_out.last_message = last_msg
+        out_groups.append(g_out)
+
+    return out_groups
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
