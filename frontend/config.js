@@ -12,6 +12,13 @@
   const apiFromStorage = window.localStorage.getItem('chat_api_base') || '';
   const wsFromStorage = window.localStorage.getItem('chat_ws_base') || '';
 
+  if (!window.CHAT_CONFIG && !isLocal) {
+    window.CHAT_CONFIG = {
+      API_BASE_URL: 'https://chat-server-154708099195.us-central1.run.app',
+      WS_BASE_URL: 'wss://chat-server-154708099195.us-central1.run.app',
+    };
+  }
+
   const cfg = window.CHAT_CONFIG || {};
   const apiFromWindow = cfg.API_BASE_URL || '';
   const wsFromWindow = cfg.WS_BASE_URL || '';
