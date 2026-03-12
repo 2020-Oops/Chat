@@ -10,14 +10,18 @@
   }
 
   // ── State ───────────────────────────────────────────
-  // Cloud Run server (deployed) — change to 'http://localhost:8000' for local dev
-  const API = 'https://chat-server-154708099195.us-central1.run.app';
-  const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const WS_HOST = 'chat-server-154708099195.us-central1.run.app';
+  // Runtime config (see config.js)
+  const runtime = window.ChatConfig || {};
+  const API = runtime.apiBase || '';
+  const WS_BASE = runtime.wsBase || (
+    API ? API.replace(/^http/, 'ws') :
+    `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
+  );
 
   let currentRoom = null;
-  let currentRoomType = 'dm'; // 'channel' | 'dm'
+  let currentRoomType = 'dm'; // 'channel' | 'dm' | 'group'
   let currentDmPeer = null; // username of the DM peer
+  let currentGroupId = null; // currently selected group ID
   let socket = null;
   let reconnectTimer = null;
   let reconnectDelay = 1000;
@@ -34,6 +38,20 @@
   const headerIcon = document.getElementById('header-icon');
   const dmList = document.getElementById('dm-list');
   const dmEmpty = document.getElementById('dm-empty');
+  const groupList = document.getElementById('group-list');
+  const groupEmpty = document.getElementById('group-empty');
+  
+  // Modals & Group actions
+  const createGroupModal = document.getElementById('create-group-modal');
+  const btnCreateGroup = document.getElementById('btn-create-group');
+  const btnCancelGroup = document.getElementById('btn-cancel-group');
+  const btnSubmitGroup = document.getElementById('btn-submit-group');
+  const newGroupNameInput = document.getElementById('new-group-name');
+  
+  // Header Actions
+  const btnAddMember = document.getElementById('btn-add-member');
+  const btnLeaveGroup = document.getElementById('btn-leave-group');
+  const btnDeleteGroup = document.getElementById('btn-delete-group');
 
   // ── Utility ─────────────────────────────────────────
   function formatTime(iso) {
@@ -132,20 +150,52 @@
 
   async function loadUsers() {
     try {
-      const res = await fetch(`${API}/api/users`, {
-        headers: { Authorization: `Bearer ${TOKEN}` },
-      });
-      if (res.status === 401) { logout(); return; }
-      if (!res.ok) return;
-      const users = await res.json();
-      renderDmList(users);
+      const [usersRes, groupsRes] = await Promise.all([
+        fetch(`${API}/api/users`, { headers: { Authorization: `Bearer ${TOKEN}` } }),
+        fetch(`${API}/api/groups`, { headers: { Authorization: `Bearer ${TOKEN}` } })
+      ]);
+      
+      if (usersRes.status === 401 || groupsRes.status === 401) { logout(); return; }
+      
+      if (usersRes.ok) {
+        const users = await usersRes.json();
+        renderDmList(users);
+      }
+      if (groupsRes.ok) {
+        const groups = await groupsRes.json();
+        renderGroupList(groups);
+      }
     } catch (e) {
-      console.warn('Failed to load users', e);
+      console.warn('Failed to load data', e);
     }
+  }
+
+  function renderGroupList(groups) {
+    if (!groups || groups.length === 0) {
+      groupEmpty.style.display = '';
+      return;
+    }
+    groupEmpty.style.display = 'none';
+
+    groupList.querySelectorAll('li:not(#group-empty)').forEach(li => li.remove());
+
+    groups.forEach(group => {
+      const li = document.createElement('li');
+      li.dataset.group = group.id;
+      li.className = '';
+      li.innerHTML = `
+        <span class="dm-avatar">👥</span>
+        <span class="dm-username">${escapeHtml(group.name)}</span>
+        <span class="dm-unread" id="unread-group-${group.id}" style="display:none"></span>
+      `;
+      li.addEventListener('click', () => openGroup(group.id, group.name, group.creator_id));
+      groupList.appendChild(li);
+    });
   }
 
   function openDm(peer) {
     currentDmPeer = peer;
+    currentGroupId = null;
     const room = dmRoomName(ME, peer);
     currentRoomType = 'dm';
 
@@ -153,6 +203,8 @@
     dmList.querySelectorAll('li').forEach(li => {
       li.classList.toggle('active', li.dataset.peer === peer);
     });
+    groupList.querySelectorAll('li').forEach(li => li.classList.remove('active'));
+
     // Clear unread badge
     const badge = document.getElementById(`unread-${CSS.escape(peer)}`);
     if (badge) { badge.style.display = 'none'; badge.textContent = ''; }
@@ -163,11 +215,67 @@
     headerMeta.textContent = 'Direct Message';
     messageInput.placeholder = `Message @${peer}…`;
     messageInput.removeAttribute('disabled');
+    
+    // Hide group actions
+    btnAddMember.style.display = 'none';
+    btnLeaveGroup.style.display = 'none';
+    btnDeleteGroup.style.display = 'none';
 
     messagesArea.innerHTML = '';
     onlineList.innerHTML = '';
 
     loadHistory(room).then(() => connect(room));
+  }
+
+  function openGroup(groupId, groupName, creatorId) {
+    currentGroupId = groupId;
+    currentDmPeer = null;
+    const room = `group_${groupId}`;
+    currentRoomType = 'group';
+
+    // Update sidebar
+    groupList.querySelectorAll('li').forEach(li => {
+      li.classList.toggle('active', li.dataset.group == groupId);
+    });
+    dmList.querySelectorAll('li').forEach(li => li.classList.remove('active'));
+
+    const badge = document.getElementById(`unread-group-${groupId}`);
+    if (badge) { badge.style.display = 'none'; badge.textContent = ''; }
+
+    // Update header
+    headerIcon.textContent = '👥';
+    headerRoom.textContent = groupName;
+    headerMeta.textContent = 'Group Chat';
+    messageInput.placeholder = `Message ${groupName}…`;
+    messageInput.removeAttribute('disabled');
+    
+    // Show group actions
+    btnAddMember.style.display = 'block';
+    // fetch my user ID to compare with creatorId (or decode JWT, or save my ID on login)
+    // For now, allow leave for all, and delete if seems to be creator (handled by backend mostly)
+    btnLeaveGroup.style.display = 'block';
+    btnDeleteGroup.style.display = 'block';
+
+    messagesArea.innerHTML = '';
+    onlineList.innerHTML = '';
+    
+    // Load members to show in online section
+    loadGroupMembers(groupId);
+
+    loadHistory(room).then(() => connect(room));
+  }
+
+  async function loadGroupMembers(groupId) {
+    try {
+      const res = await fetch(`${API}/api/groups/${groupId}/members`, {
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      });
+      if (!res.ok) return;
+      const members = await res.json();
+      renderOnlineList(members.map(m => m.user.username));
+    } catch (e) {
+      console.warn('Failed to load members', e);
+    }
   }
 
   // ── Load history ─────────────────────────────────────
@@ -196,7 +304,7 @@
     clearTimeout(reconnectTimer);
     setConnected(false);
 
-    const url = `${WS_PROTO}//${WS_HOST}/ws/${encodeURIComponent(room)}?token=${TOKEN}`;
+    const url = `${WS_BASE}/ws/${encodeURIComponent(room)}?token=${TOKEN}`;
     socket = new WebSocket(url);
 
     socket.onopen = () => {
@@ -215,7 +323,9 @@
         if (currentRoomType === 'channel') {
           renderSystem(data.content);
         }
+        // System messages not filtered currently
       }
+      // For groups, we render member list via API instead of WS presence
       if (data.online && currentRoomType === 'channel') {
         renderOnlineList(data.online);
       }
@@ -241,7 +351,15 @@
   function sendMessage() {
     const content = messageInput.value.trim();
     if (!content || !socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ content }));
+    
+    const payload = { content };
+    if (currentRoomType === 'group' && currentGroupId) {
+       payload.group_id = currentGroupId;
+    } else if (currentRoomType === 'dm' && currentDmPeer) {
+       // payload.recipient_id could be added if frontend fetched it, but backend mostly relies on room name or recipient_id
+    }
+    
+    socket.send(JSON.stringify(payload));
     messageInput.value = '';
     messageInput.style.height = 'auto';
   }
@@ -259,6 +377,105 @@
   messageInput.addEventListener('input', () => {
     messageInput.style.height = 'auto';
     messageInput.style.height = `${messageInput.scrollHeight}px`;
+  });
+
+  // ── Group Management Logic ──────────────────────────────────────────
+  
+  btnCreateGroup.addEventListener('click', () => {
+    createGroupModal.style.display = 'flex';
+    newGroupNameInput.focus();
+  });
+  
+  btnCancelGroup.addEventListener('click', () => {
+    createGroupModal.style.display = 'none';
+    newGroupNameInput.value = '';
+  });
+  
+  btnSubmitGroup.addEventListener('click', async () => {
+    const name = newGroupNameInput.value.trim();
+    if (!name) return;
+    try {
+      const res = await fetch(`${API}/api/groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+        body: JSON.stringify({ name })
+      });
+      if (res.ok) {
+        createGroupModal.style.display = 'none';
+        newGroupNameInput.value = '';
+        loadUsers(); // Refresh groups
+      } else {
+        const error = await res.json();
+        alert(error.detail || 'Failed to create group');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error creating group');
+    }
+  });
+
+  btnAddMember.addEventListener('click', async () => {
+    if (!currentGroupId) return;
+    const username = prompt('Enter username to add to this group:');
+    if (!username) return;
+    try {
+      const res = await fetch(`${API}/api/groups/${currentGroupId}/members?username=${encodeURIComponent(username)}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${TOKEN}` }
+      });
+      if (res.ok) {
+        loadGroupMembers(currentGroupId); // Refresh member list
+        alert(`${username} has been added.`);
+      } else {
+        const error = await res.json();
+        alert(error.detail || 'Failed to add user');
+      }
+    } catch (e) {
+      alert('Error adding user');
+    }
+  });
+
+  btnDeleteGroup.addEventListener('click', async () => {
+    if (!currentGroupId) return;
+    if (!confirm('Are you sure you want to delete this group? Only the creator can do this.')) return;
+    try {
+      const res = await fetch(`${API}/api/groups/${currentGroupId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${TOKEN}` }
+      });
+      if (res.ok || res.status === 204) {
+        alert('Group deleted.');
+        window.location.reload();
+      } else {
+        const error = await res.json();
+        alert(error.detail || 'Failed to delete group (must be creator).');
+      }
+    } catch (e) {
+      alert('Error deleting group');
+    }
+  });
+  
+  btnLeaveGroup.addEventListener('click', async () => {
+    if (!currentGroupId) return;
+    // We need my user_id to correctly hit the endpoint. Wait, let's fetch my profile first to get my ID.
+    try {
+      const meRes = await fetch(`${API}/api/me`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+      const meData = await meRes.json();
+      
+      const res = await fetch(`${API}/api/groups/${currentGroupId}/members/${meData.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${TOKEN}` }
+      });
+      if (res.ok || res.status === 204) {
+        alert('Left group.');
+        window.location.reload();
+      } else {
+        const error = await res.json();
+        alert(error.detail || 'Failed to leave group / Creator cannot leave.');
+      }
+    } catch (e) {
+      alert('Error leaving group');
+    }
   });
 
   // ── Logout ─────────────────────────────────────────────

@@ -24,10 +24,9 @@ app = FastAPI(
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-# Forced explicit CORS for the frontend origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://chat-frontend-154708099195.us-central1.run.app"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,6 +35,8 @@ app.add_middleware(
 # ── REST Routers ──────────────────────────────────────────────────────────────
 app.include_router(users.router)
 app.include_router(messages.router)
+from app.routers import groups
+app.include_router(groups.router)
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 @app.websocket("/ws/{room}")

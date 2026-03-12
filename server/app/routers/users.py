@@ -27,6 +27,7 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
         )
     user = User(
         username=user_in.username,
+        display_name=user_in.display_name,
         hashed_password=hash_password(user_in.password),
     )
     db.add(user)
@@ -58,11 +59,16 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 @router.get("/users", response_model=list[UserOut])
 async def get_users(
+    q: str | None = None,
+    limit: int = 20,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return all registered users (excluding yourself)."""
-    result = await db.execute(
-        select(User).where(User.id != current_user.id).order_by(User.username)
-    )
+    """Return registered users (excluding yourself), with optional search and limit."""
+    stmt = select(User).where(User.id != current_user.id)
+    if q:
+        stmt = stmt.where(User.username.ilike(f"%{q}%"))
+    
+    stmt = stmt.order_by(User.username).limit(limit)
+    result = await db.execute(stmt)
     return result.scalars().all()

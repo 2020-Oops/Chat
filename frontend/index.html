@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="uk">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,6 +8,7 @@
   <meta name="description" content="Real-time chat app. Sign in or create an account to start chatting." />
   <link rel="stylesheet" href="./style.css" />
 </head>
+
 <body>
   <div class="auth-bg">
     <div class="auth-card">
@@ -33,7 +35,8 @@
         </div>
         <div class="form-group">
           <label for="login-password">Password</label>
-          <input id="login-password" type="password" placeholder="Enter password" autocomplete="current-password" required />
+          <input id="login-password" type="password" placeholder="Enter password" autocomplete="current-password"
+            required />
         </div>
         <button type="submit" class="btn btn-primary" id="btn-login">Sign In</button>
       </form>
@@ -42,20 +45,22 @@
       <form id="form-register" style="display:none" onsubmit="handleRegister(event)" autocomplete="on">
         <div class="form-group">
           <label for="reg-username">Username</label>
-          <input id="reg-username" type="text" placeholder="Choose a username" autocomplete="username" required minlength="3" maxlength="32" />
+          <input id="reg-username" type="text" placeholder="Choose a username" autocomplete="username" required
+            minlength="3" maxlength="32" />
         </div>
         <div class="form-group">
           <label for="reg-password">Password</label>
-          <input id="reg-password" type="password" placeholder="Create a password" autocomplete="new-password" required minlength="6" />
+          <input id="reg-password" type="password" placeholder="Create a password" autocomplete="new-password" required
+            minlength="6" />
         </div>
         <button type="submit" class="btn btn-primary" id="btn-register">Create Account</button>
       </form>
     </div>
   </div>
 
+  <script src="./config.js"></script>
   <script>
-    // Cloud Run server — change to 'http://localhost:8000' for local dev
-    const API = 'https://chat-server-154708099195.us-central1.run.app';
+    const API = (window.ChatConfig && window.ChatConfig.apiBase) ? window.ChatConfig.apiBase : '';
 
     // Redirect if already logged in
     if (localStorage.getItem('token')) {
@@ -134,4 +139,5 @@
     }
   </script>
 </body>
+
 </html>
