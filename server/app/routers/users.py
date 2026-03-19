@@ -11,6 +11,7 @@ from app.auth import (
     hash_password,
 )
 from app.database import get_db
+from app.websocket import manager
 from app.models import User, Message, Group, GroupMember
 from app.schemas import Token, UserCreate, UserOut, UserDelete
 
@@ -93,6 +94,7 @@ async def get_users(
         
         user_out = UserOut.model_validate(u)
         user_out.last_message = last_msg
+        user_out.is_online = u.username in manager.global_online_users()
         out_users.append(user_out)
         
     return out_users

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, or_, and_
+from sqlalchemy import select, or_, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -85,3 +85,29 @@ async def get_messages(
     )
     messages = result.scalars().all()
     return list(reversed(messages))
+
+@router.delete("/messages", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chat(
+    room: str = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete all messages in a specific room (e.g., DM room)."""
+    if room.startswith("dm_"):
+        # Build the expected room name from the current user
+        # and verify it matches — prevents user "vi" deleting "dm_vitalik_bob"
+        parts = room[3:]  # remove 'dm_' prefix
+        # The room is dm_{sorted_user1}_{sorted_user2}
+        # We need to verify the current user is one of the two participants
+        # Safe approach: reconstruct all possible DM rooms for this user
+        # and check if the requested room matches
+        me = current_user.username
+        if not (
+            room == "dm_" + "_".join(sorted([me, parts.replace(me, "", 1).strip("_")]))
+            and me in parts
+        ):
+            raise HTTPException(status_code=403, detail="Not your DM room")
+            
+    await db.execute(delete(Message).where(Message.room == room))
+    await db.commit()
+    return

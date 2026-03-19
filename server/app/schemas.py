@@ -24,6 +24,7 @@ class UserOut(BaseModel):
     display_name: Optional[str] = None
     created_at: datetime
     last_message: Optional[str] = None
+    is_online: bool = False
 
 
 # ── Group schemas ────────────────────────────────────────────────────────────
@@ -76,6 +77,9 @@ class MessageOut(BaseModel):
 
     id: int
     content: str
+    status: str
+    delivered_at: Optional[datetime] = None
+    read_at: Optional[datetime] = None
     room: Optional[str] = None
     group_id: Optional[int] = None
     recipient_id: Optional[int] = None

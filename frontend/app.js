@@ -19,14 +19,20 @@
   );
 
   let currentRoom = null;
-  let currentRoomType = 'dm'; // 'channel' | 'dm' | 'group'
+  let currentRoomType = 'dm'; // 'dm' | 'group'
   let currentDmPeer = null; // username of the DM peer
   let currentGroupId = null; // currently selected group ID
   let socket = null;
   let reconnectTimer = null;
   let reconnectDelay = 1000;
   
+  // Separate presence WebSocket (stays connected permanently)
+  let presenceSocket = null;
+  let presenceReconnectTimer = null;
+  let presenceReconnectDelay = 1000;
+  
   let allUsersCache = []; // To power the add-member user selection
+  let allGroupsCache = []; // To power group search
   let currentGroupMembersCache = [];
 
   // ── DOM refs ────────────────────────────────────────
@@ -83,6 +89,18 @@
     document.body.classList.toggle('sidebar-open', open);
   }
 
+  function isMobile() {
+    return window.innerWidth <= 720;
+  }
+
+  // Back button (mobile)
+  const btnBack = document.getElementById('btn-back');
+  if (btnBack) {
+    btnBack.addEventListener('click', () => {
+      document.body.classList.remove('chat-open');
+    });
+  }
+
   if (btnSidebar) {
     btnSidebar.addEventListener('click', () => setSidebar(true));
   }
@@ -91,6 +109,16 @@
   }
   if (sidebarOverlay) {
     sidebarOverlay.addEventListener('click', () => setSidebar(false));
+  }
+
+  function updateChatLayoutState() {
+    const layout = document.querySelector('.chat-layout');
+    if (!layout) return;
+    if (currentRoom) {
+      layout.classList.remove('no-chat-active');
+    } else {
+      layout.classList.add('no-chat-active');
+    }
   }
 
   // ── Toast Notifications ──────────────────────────────
@@ -148,6 +176,12 @@
   }
 
   function setConnected(ok) {
+    if (!currentRoom) {
+      connBadge.style.display = 'none';
+      btnSend.disabled = true;
+      return;
+    }
+    connBadge.style.display = '';
     connBadge.className = `connection-badge ${ok ? 'connected' : 'disconnected'}`;
     connText.textContent = ok ? 'Connected' : 'Disconnected';
     btnSend.disabled = !ok;
@@ -166,22 +200,94 @@
     return 'dm_' + [userA, userB].sort().join('_');
   }
 
+  // ── Read Receipt Observer ─────────────────────────────
+  const pendingReadIds = new Set();
+  
+  const readObserver = new IntersectionObserver((entries) => {
+    let newlyReadIds = [];
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const msgElement = entry.target;
+        const msgIdStr = msgElement.id;
+        if (msgIdStr && msgIdStr.startsWith('msg-')) {
+          newlyReadIds.push(parseInt(msgIdStr.replace('msg-', ''), 10));
+        }
+        readObserver.unobserve(msgElement);
+      }
+    });
+
+    if (newlyReadIds.length > 0) {
+      newlyReadIds.forEach(id => pendingReadIds.add(id));
+      flushReadReceipts();
+    }
+  }, { threshold: 0.5 });
+
+  function flushReadReceipts() {
+    if (pendingReadIds.size > 0 && socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'mark_read',
+        message_ids: Array.from(pendingReadIds)
+      }));
+      pendingReadIds.clear();
+    }
+  }
+  
+  const pendingDeliveredIds = new Set();
+  function flushDeliveredReceipts() {
+    if (pendingDeliveredIds.size > 0 && socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'mark_delivered',
+        message_ids: Array.from(pendingDeliveredIds)
+      }));
+      pendingDeliveredIds.clear();
+    }
+  }
+
+  function observeMessageForReadStatus(element) {
+    readObserver.observe(element);
+  }
+
   // ── Render helpers ───────────────────────────────────
   function renderMessage(msg) {
+    hideEmptyPlaceholder();
     const isOwn = msg.sender.username === ME;
     const div = document.createElement('div');
     div.className = `message-bubble ${isOwn ? 'own' : ''}`;
+    div.id = `msg-${msg.id}`;
+    div.setAttribute('data-status', msg.status || 'SENT');
+
+    // Status icons HTML
+    let statusHtml = '';
+    if (isOwn) {
+      statusHtml = `
+        <div class="status-indicator">
+          <!-- Single Check (Sent) -->
+          <svg class="status-icon icon-single-check" viewBox="0 0 24 24">
+            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+          </svg>
+          <!-- Double Check (Delivered/Read) -->
+          <svg class="status-icon icon-double-check" viewBox="0 0 24 24">
+            <path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/>
+          </svg>
+        </div>
+      `;
+    }
+
     div.innerHTML = `
       <div class="avatar">${avatarInitial(msg.sender.username)}</div>
       <div class="bubble-content">
         <div class="bubble-header">
           <span class="bubble-name">${escapeHtml(msg.sender.username)}</span>
           <span class="bubble-time">${formatTime(msg.timestamp)}</span>
+          ${statusHtml}
         </div>
         <div class="bubble-text">${escapeHtml(msg.content)}</div>
       </div>
     `;
     messagesArea.appendChild(div);
+    if (!isOwn) {
+      observeMessageForReadStatus(div);
+    }
     scrollToBottom();
   }
 
@@ -213,8 +319,27 @@
     // Check if it's a DM (roomStr = dm_userX_userY)
     if (roomStr && roomStr.startsWith('dm_')) {
       // Find which peer we are talking to in this DM
-      const parts = roomStr.substring(3).split('_');
-      const peer = parts[0] === ME ? parts[1] : parts[0];
+      // Use dmRoomName() comparison instead of naive split (handles underscores in usernames)
+      let peer = null;
+      for (const u of (allUsersCache || [])) {
+        if (dmRoomName(ME, u.username) === roomStr) { peer = u.username; break; }
+      }
+      if (!peer) return;
+      
+      if (allUsersCache) {
+        const cacheUser = allUsersCache.find(u => u.username === peer);
+        let needsRerender = false;
+        if (cacheUser) {
+          if (!cacheUser.last_message && activeSidebarTab === 'chats') {
+            needsRerender = true;
+          }
+          cacheUser.last_message = content;
+        }
+        if (needsRerender) {
+          renderDmListBase();
+        }
+      }
+      
       li = document.querySelector(`#dm-list li[data-peer="${CSS.escape(peer)}"]`);
       badgeId = `unread-${CSS.escape(peer)}`;
     } 
@@ -240,15 +365,105 @@
     }
   }
 
+  // Sidebar Tabs Logic
+  let activeSidebarTab = 'chats'; // 'chats' | 'contacts' | 'settings'
+  const navBtnContacts = document.getElementById('nav-btn-contacts');
+  const navBtnChats = document.getElementById('nav-btn-chats');
+  const navBtnSettings = document.getElementById('nav-btn-settings');
+  
+  const groupListHeader = document.getElementById('group-list-header');
+  const groupSearchContainer = document.getElementById('group-search-container');
+  const dmListHeader = document.getElementById('dm-list-header');
+  const searchUsersContainer = document.querySelector('#search-users').parentElement;
+  const settingsView = document.getElementById('settings-view');
+  const onlineSection = document.getElementById('online-section');
+
+  if (navBtnContacts) navBtnContacts.addEventListener('click', () => switchSidebarTab('contacts'));
+  if (navBtnChats) navBtnChats.addEventListener('click', () => switchSidebarTab('chats'));
+  if (navBtnSettings) navBtnSettings.addEventListener('click', () => switchSidebarTab('settings'));
+
+  // Search inputs
+  const searchUsersInput = document.getElementById('search-users');
+  const searchGroupsInput = document.getElementById('search-groups');
+
+  if (searchUsersInput) {
+    searchUsersInput.addEventListener('input', () => renderDmListBase());
+  }
+  if (searchGroupsInput) {
+    searchGroupsInput.addEventListener('input', () => renderGroupListBase());
+  }
+
+  function switchSidebarTab(tab) {
+    activeSidebarTab = tab;
+    if (navBtnContacts) navBtnContacts.classList.toggle('active', tab === 'contacts');
+    if (navBtnChats) navBtnChats.classList.toggle('active', tab === 'chats');
+    if (navBtnSettings) navBtnSettings.classList.toggle('active', tab === 'settings');
+    
+    // Toggle Groups
+    const groupDisplay = tab === 'chats' ? '' : 'none';
+    if (groupListHeader) groupListHeader.style.display = groupDisplay;
+    if (groupSearchContainer) groupSearchContainer.style.display = groupDisplay;
+    if (groupList) groupList.style.display = groupDisplay;
+    
+    // Toggle DMs/Contacts
+    const dmDisplay = (tab === 'chats' || tab === 'contacts') ? '' : 'none';
+    if (dmListHeader) {
+      dmListHeader.style.display = dmDisplay;
+      dmListHeader.textContent = tab === 'chats' ? 'Direct Messages' : 'All Contacts';
+      dmListHeader.style.marginTop = tab === 'chats' ? '1rem' : '0';
+    }
+    if (searchUsersContainer) searchUsersContainer.style.display = dmDisplay;
+    if (dmList) dmList.style.display = dmDisplay;
+    
+    // Toggle Settings and Online list
+    if (settingsView) settingsView.style.display = tab === 'settings' ? 'flex' : 'none';
+    if (onlineSection) onlineSection.style.display = tab === 'settings' ? 'none' : '';
+    
+    if (tab !== 'settings') {
+      renderDmListBase();
+      renderGroupListBase();
+    }
+  }
+
+  function renderDmListBase() {
+    if (!allUsersCache) return;
+    const query = searchUsersInput ? searchUsersInput.value.trim().toLowerCase() : '';
+    let baseList;
+    if (activeSidebarTab === 'chats') {
+       baseList = allUsersCache.filter(u => u.last_message);
+       const emptyText = dmEmpty.querySelector('span');
+       if (emptyText) emptyText.textContent = 'No active chats yet';
+    } else {
+       baseList = allUsersCache;
+       const emptyText = dmEmpty.querySelector('span');
+       if (emptyText) emptyText.textContent = 'No contacts found';
+    }
+    // Apply search filter
+    if (query) {
+       baseList = baseList.filter(u => u.username.toLowerCase().includes(query));
+    }
+    renderDmList(baseList);
+  }
+
+  function renderGroupListBase() {
+    if (!allGroupsCache) return;
+    const query = searchGroupsInput ? searchGroupsInput.value.trim().toLowerCase() : '';
+    let filtered = allGroupsCache;
+    if (query) {
+      filtered = allGroupsCache.filter(g => g.name.toLowerCase().includes(query));
+    }
+    renderGroupList(filtered);
+  }
+
   function renderDmList(users) {
+    // Remove old DM entries (keep #dm-empty)
+    dmList.querySelectorAll('li:not(#dm-empty)').forEach(li => li.remove());
+
     if (!users || users.length === 0) {
       dmEmpty.style.display = '';
       return;
     }
     dmEmpty.style.display = 'none';
-
-    // Remove old DM entries (keep #dm-empty)
-    dmList.querySelectorAll('li:not(#dm-empty)').forEach(li => li.remove());
 
     users.forEach(user => {
       const li = document.createElement('li');
@@ -262,8 +477,12 @@
       }
       
       const lastMsgText = user.last_message || 'Чат порожній';
+      const isOnlineStr = user.is_online ? 'online' : 'offline';
       li.innerHTML = `
-        <span class="dm-avatar">${avatarInitial(user.username)}</span>
+        <div class="avatar-container">
+          <span class="dm-avatar">${avatarInitial(user.username)}</span>
+          <span class="status-dot ${isOnlineStr}" id="status-dot-${CSS.escape(user.username)}"></span>
+        </div>
         <div class="dm-info">
           <span class="dm-username">${escapeHtml(user.username)}</span>
           <span class="dm-last-message">${escapeHtml(lastMsgText)}</span>
@@ -287,11 +506,12 @@
       if (usersRes.ok) {
         const users = await usersRes.json();
         allUsersCache = users;
-        renderDmList(users);
+        renderDmListBase();
       }
       if (groupsRes.ok) {
         const groups = await groupsRes.json();
-        renderGroupList(groups);
+        allGroupsCache = groups;
+        renderGroupListBase();
       }
     } catch (e) {
       console.warn('Failed to load data', e);
@@ -299,13 +519,14 @@
   }
 
   function renderGroupList(groups) {
+    // Clear old entries first (same pattern as renderDmList)
+    groupList.querySelectorAll('li:not(#group-empty)').forEach(li => li.remove());
+
     if (!groups || groups.length === 0) {
       groupEmpty.style.display = '';
       return;
     }
     groupEmpty.style.display = 'none';
-
-    groupList.querySelectorAll('li:not(#group-empty)').forEach(li => li.remove());
 
     groups.forEach(group => {
       const li = document.createElement('li');
@@ -333,11 +554,18 @@
   }
 
   function openDm(peer) {
+    if (activeSidebarTab !== 'chats') {
+      switchSidebarTab('chats');
+    }
     currentDmPeer = peer;
     currentGroupId = null;
     const room = dmRoomName(ME, peer);
     currentRoomType = 'dm';
-    setSidebar(false);
+    if (isMobile()) {
+      document.body.classList.add('chat-open');
+    } else {
+      setSidebar(false);
+    }
 
     // Update DM sidebar: activate peer
     dmList.querySelectorAll('li').forEach(li => {
@@ -362,7 +590,6 @@
     btnDeleteGroup.style.display = 'none';
 
     messagesArea.innerHTML = '';
-    onlineList.innerHTML = '';
 
     loadHistory(room).then(() => connect(room));
   }
@@ -372,7 +599,11 @@
     currentDmPeer = null;
     const room = `group_${groupId}`;
     currentRoomType = 'group';
-    setSidebar(false);
+    if (isMobile()) {
+      document.body.classList.add('chat-open');
+    } else {
+      setSidebar(false);
+    }
 
     // Update sidebar
     groupList.querySelectorAll('li').forEach(li => {
@@ -398,10 +629,6 @@
     btnDeleteGroup.style.display = 'block';
 
     messagesArea.innerHTML = '';
-    onlineList.innerHTML = '';
-    
-    // Load members to show in online section
-    loadGroupMembers(groupId);
 
     loadHistory(room).then(() => connect(room));
   }
@@ -431,9 +658,34 @@
       const msgs = await res.json();
       messagesArea.innerHTML = '';
       msgs.forEach(renderMessage);
+      
+      msgs.forEach(m => {
+        if (m.sender.username !== ME && m.status === 'SENT') {
+          pendingDeliveredIds.add(m.id);
+        }
+      });
+
+      // Show empty-chat placeholder if no messages
+      if (msgs.length === 0) {
+        showEmptyPlaceholder();
+      }
     } catch (e) {
       console.warn('History load failed', e);
     }
+  }
+
+  function showEmptyPlaceholder() {
+    hideEmptyPlaceholder();
+    const el = document.createElement('div');
+    el.id = 'empty-chat-placeholder';
+    el.className = 'empty-chat-placeholder';
+    el.textContent = 'Чат порожній';
+    messagesArea.appendChild(el);
+  }
+
+  function hideEmptyPlaceholder() {
+    const el = document.getElementById('empty-chat-placeholder');
+    if (el) el.remove();
   }
 
   function connect(room) {
@@ -444,7 +696,10 @@
       socket = null;
     }
     clearTimeout(reconnectTimer);
+    currentRoom = room;
+    updateChatLayoutState();
     setConnected(false);
+    connText.textContent = 'Connecting…';
 
     const url = `${WS_BASE}/ws/${encodeURIComponent(room)}?token=${TOKEN}`;
     socket = new WebSocket(url);
@@ -452,34 +707,57 @@
     socket.onopen = () => {
       setConnected(true);
       reconnectDelay = 1000;
+      flushReadReceipts();
+      flushDeliveredReceipts();
     };
 
     socket.onmessage = (event) => {
       let data;
       try { data = JSON.parse(event.data); } catch { return; }
 
+      if (data.type === 'status_update') {
+        data.message_ids.forEach(id => {
+          const msgEl = document.getElementById(`msg-${id}`);
+          if (msgEl) {
+            msgEl.setAttribute('data-status', data.status);
+          }
+        });
+        return;
+      }
+      
+      // user_status events are now handled by presenceSocket,
+      // but handle them here too in case they arrive on the room socket
+      if (data.type === 'user_status') {
+         handleUserStatus(data);
+         return;
+      }
+
       if (data.type === 'message') {
+        if (data.sender.username !== ME && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({
+            type: 'mark_delivered',
+            message_ids: [data.id]
+          }));
+        }
+
         if (data.room === currentRoom) {
           renderMessage(data);
+          updateSidebarItem(data.room, data.content, false);
         } else {
           // Message for a different room, update sidebar and show unread
           updateSidebarItem(data.room, data.content, true);
         }
         
-        // Always update sidebar message text dynamically
-        updateSidebarItem(data.room, data.content, false);
-        
       } else if (data.type === 'system') {
-        if (currentRoomType === 'channel') {
-          renderSystem(data.content);
+        // Show system messages for the currently open room, except join/leave noise
+        if (data.room === currentRoom) {
+          if (!data.content.endsWith('joined the room') && !data.content.endsWith('left the room')) {
+            renderSystem(data.content);
+          }
         }
       } else if (data.type === 'group_joined') {
         // We were added to a new group, or we created one!
         loadUsers();
-      }
-      
-      if (data.online && currentRoomType === 'channel') {
-        renderOnlineList(data.online);
       }
     };
 
@@ -494,7 +772,6 @@
     };
 
     socket.onerror = () => { socket.close(); };
-    currentRoom = room;
   }
 
   // ── Channel switching is removed for DM-only mode ──
@@ -508,7 +785,8 @@
     if (currentRoomType === 'group' && currentGroupId) {
        payload.group_id = currentGroupId;
     } else if (currentRoomType === 'dm' && currentDmPeer) {
-       // payload.recipient_id could be added if frontend fetched it, but backend mostly relies on room name or recipient_id
+       const peerUser = allUsersCache.find(u => u.username === currentDmPeer);
+       if (peerUser) payload.recipient_id = peerUser.id;
     }
     
     socket.send(JSON.stringify(payload));
@@ -743,7 +1021,13 @@
           currentGroupId = null;
           currentRoomType = 'dm'; // fallback
           currentDmPeer = null;
-          if (socket) { socket.close(); socket = null; }
+          currentRoom = null;
+          if (socket) {
+            socket.onclose = null;
+            socket.close();
+            socket = null;
+          }
+          setConnected(false);
           loadUsers();
         } else {
           const error = await res.json();
@@ -781,7 +1065,13 @@
         currentGroupId = null;
         currentRoomType = 'dm'; // fallback
         currentDmPeer = null;
-        if (socket) { socket.close(); socket = null; }
+        currentRoom = null;
+        if (socket) {
+          socket.onclose = null;
+          socket.close();
+          socket = null;
+        }
+        setConnected(false);
         loadUsers();
       } else {
         const error = await res.json();
@@ -849,7 +1139,152 @@
     window.location.href = '/';
   };
 
+  // ── Context Menu Logic ──────────────────────────────────────────
+  const contextMenu = document.getElementById('context-menu');
+  const btnContextDelete = document.getElementById('btn-context-delete');
+  let contextMenuTargetId = null;
+  let contextMenuTargetType = null;
+
+  const sidebarLists = [dmList, groupList];
+  sidebarLists.forEach(list => {
+    if (!list) return;
+    list.addEventListener('contextmenu', (e) => {
+      const li = e.target.closest('li');
+      if (!li || li.classList.contains('dm-empty')) return;
+      
+      e.preventDefault();
+      
+      if (li.dataset.peer) {
+        contextMenuTargetId = li.dataset.peer;
+        contextMenuTargetType = 'dm';
+      } else if (li.dataset.group) {
+        contextMenuTargetId = li.dataset.group;
+        contextMenuTargetType = 'group';
+      } else {
+        return;
+      }
+      
+      if (contextMenu) {
+        contextMenu.style.display = 'block';
+        let x = e.clientX;
+        let y = e.clientY;
+        
+        const menuWidth = contextMenu.offsetWidth;
+        const menuHeight = contextMenu.offsetHeight;
+        if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 5;
+        if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 5;
+        
+        contextMenu.style.left = `${x}px`;
+        contextMenu.style.top = `${y}px`;
+      }
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (contextMenu && contextMenu.style.display === 'block' && !contextMenu.contains(e.target)) {
+      contextMenu.style.display = 'none';
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && contextMenu && contextMenu.style.display === 'block') {
+      contextMenu.style.display = 'none';
+    }
+  });
+
+  if (btnContextDelete) {
+    btnContextDelete.addEventListener('click', async () => {
+      if (contextMenu) contextMenu.style.display = 'none';
+      if (contextMenuTargetType === 'group') {
+        currentGroupId = parseInt(contextMenuTargetId, 10); 
+        if (deleteGroupModal) deleteGroupModal.style.display = 'flex';
+      } else if (contextMenuTargetType === 'dm') {
+        const roomName = `dm_${[ME, contextMenuTargetId].sort().join('_')}`;
+        try {
+          const res = await fetch(`${API}/api/messages?room=${encodeURIComponent(roomName)}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${TOKEN}` }
+          });
+          if (res.ok || res.status === 204) {
+            showToast('Чат видалено', 'success');
+            if (currentDmPeer === contextMenuTargetId) {
+              messagesArea.innerHTML = '';
+              const emptySpan = document.createElement('div');
+              emptySpan.className = 'dm-empty';
+              emptySpan.innerHTML = '<span style="font-size:0.8rem;color:var(--text-muted);margin:1rem;display:block;">Чат порожній</span>';
+              messagesArea.appendChild(emptySpan);
+            }
+            loadUsers();
+          } else {
+            const err = await res.json();
+            showToast(err.detail || 'Помилка видалення чату', 'error');
+          }
+        } catch (e) {
+          showToast('Помилка сервера', 'error');
+        }
+      }
+    });
+  }
+
+  // ── Shared status handler ───────────────────────────
+  function handleUserStatus(data) {
+    const { username, status } = data;
+    if (allUsersCache) {
+      const cacheUser = allUsersCache.find(u => u.username === username);
+      if (cacheUser) {
+        cacheUser.is_online = (status === 'online');
+      }
+    }
+    const dot = document.getElementById(`status-dot-${CSS.escape(username)}`);
+    if (dot) {
+      if (status === 'online') {
+        dot.classList.add('online');
+        dot.classList.remove('offline');
+      } else {
+        dot.classList.add('offline');
+        dot.classList.remove('online');
+      }
+    }
+  }
+
+  // ── Presence WebSocket (separate, always-on) ──────────
+  function connectPresence() {
+    if (presenceSocket) {
+      presenceSocket.onclose = null;
+      presenceSocket.close();
+      presenceSocket = null;
+    }
+    clearTimeout(presenceReconnectTimer);
+
+    const url = `${WS_BASE}/ws/presence?token=${TOKEN}`;
+    presenceSocket = new WebSocket(url);
+
+    presenceSocket.onopen = () => {
+      presenceReconnectDelay = 1000;
+    };
+
+    presenceSocket.onmessage = (event) => {
+      let data;
+      try { data = JSON.parse(event.data); } catch { return; }
+      if (data.type === 'user_status') {
+        handleUserStatus(data);
+      }
+    };
+
+    presenceSocket.onclose = (ev) => {
+      if (ev.code === 4001) return; // auth fail, don't reconnect
+      presenceReconnectTimer = setTimeout(() => {
+        presenceReconnectDelay = Math.min(presenceReconnectDelay * 2, 30000);
+        connectPresence();
+      }, presenceReconnectDelay);
+    };
+
+    presenceSocket.onerror = () => { presenceSocket.close(); };
+  }
+
   // ── Init ───────────────────────────────────────────────
+  connectPresence();
+  updateChatLayoutState(); // Added call
   loadUsers();
 
 })();
