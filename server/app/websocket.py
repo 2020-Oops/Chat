@@ -202,12 +202,13 @@ async def websocket_endpoint(websocket: WebSocket, room: str, token: str):
                 content = data.get("content", "").strip()
                 group_id = data.get("group_id")
                 recipient_id = data.get("recipient_id")
+                file_id = data.get("file_id")
 
                 if group_id_from_room is not None:
                     group_id = group_id_from_room
                     recipient_id = None
                 
-                if not content:
+                if not content and not file_id:
                     continue
 
                 # Persist message to DB
@@ -218,6 +219,7 @@ async def websocket_endpoint(websocket: WebSocket, room: str, token: str):
                         group_id=group_id,
                         recipient_id=recipient_id,
                         sender_id=user.id,
+                        file_id=file_id,
                         status="SENT"
                     )
                     save_db.add(msg)
@@ -228,7 +230,7 @@ async def websocket_endpoint(websocket: WebSocket, room: str, token: str):
                     result = await save_db.execute(
                         select(Message)
                         .where(Message.id == msg.id)
-                        .options(selectinload(Message.sender))
+                        .options(selectinload(Message.sender), selectinload(Message.file))
                     )
                     msg = result.scalar_one()
 
@@ -247,6 +249,14 @@ async def websocket_endpoint(websocket: WebSocket, room: str, token: str):
                         "username": msg.sender.username,
                         "display_name": msg.sender.display_name,
                     },
+                    "file": {
+                        "id": msg.file.id,
+                        "original_name": msg.file.original_name,
+                        "stored_name": msg.file.stored_name,
+                        "file_size": msg.file.file_size,
+                        "mime_type": msg.file.mime_type,
+                        "url": f"/uploads/{msg.file.stored_name}"
+                    } if msg.file else None,
                     "online": manager.online_users(room),
                 })
 

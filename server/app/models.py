@@ -21,6 +21,28 @@ class User(Base):
     messages_received: Mapped[list["Message"]] = relationship("Message", back_populates="recipient", foreign_keys="Message.recipient_id")
     groups_created: Mapped[list["Group"]] = relationship("Group", back_populates="creator")
     group_memberships: Mapped[list["GroupMember"]] = relationship("GroupMember", back_populates="user")
+    files_uploaded: Mapped[list["File"]] = relationship("File", back_populates="sender")
+
+
+class File(Base):
+    __tablename__ = "files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    stored_name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False) # in bytes
+    mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+
+    sender: Mapped["User"] = relationship("User", back_populates="files_uploaded")
+    message: Mapped["Message"] = relationship("Message", back_populates="file", uselist=False)
+
+    @property
+    def url(self) -> str:
+        return f"/uploads/{self.stored_name}"
 
 
 class Group(Base):
@@ -80,3 +102,6 @@ class Message(Base):
     sender: Mapped["User"] = relationship("User", back_populates="messages_sent", foreign_keys=[sender_id])
     recipient: Mapped["User"] = relationship("User", back_populates="messages_received", foreign_keys=[recipient_id])
     group: Mapped["Group"] = relationship("Group", back_populates="messages")
+    
+    file_id: Mapped[int | None] = mapped_column(ForeignKey("files.id"), nullable=True)
+    file: Mapped["File | None"] = relationship("File", back_populates="message")

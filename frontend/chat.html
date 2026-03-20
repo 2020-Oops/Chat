@@ -70,7 +70,7 @@
       <div id="settings-view" class="settings-view" style="display: none;">
         <div class="room-list-header" style="margin-top: 0;">SETTINGS</div>
 
-        <div class="room-list-header" style="margin-top: 1rem;">ACCOUNT</div>
+        <div id="account-header" class="room-list-header" style="margin-top: 1rem;">ACCOUNT</div>
         <ul class="room-list settings-list">
           <li id="btn-logout" onclick="logout()" title="Sign out">
             <span class="settings-icon">
@@ -239,8 +239,22 @@
     <!-- ── Typing ──────────────────────────────────── -->
     <div class="typing-indicator" id="typing-indicator"></div>
 
+    <!-- ── Upload Preview ────────────────────────── -->
+    <div id="upload-preview" class="upload-preview" style="display: none;">
+      <div class="preview-content">
+        <span class="preview-filename" id="preview-filename"></span>
+        <button class="btn-icon preview-remove" id="btn-preview-remove" title="Remove file">&times;</button>
+      </div>
+    </div>
+
     <!-- ── Input ──────────────────────────────────── -->
     <div class="message-input-area">
+      <input type="file" id="file-input" style="display: none;">
+      <button class="btn-icon btn-attach" id="btn-attach" title="Attach file" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+        </svg>
+      </button>
       <div class="message-input-wrap">
         <textarea
           id="message-input"

@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import Group, GroupMember, User, Message
 from app.schemas import GroupCreate, GroupOut, GroupMemberOut
 from app.websocket import manager
+from app.utils import delete_files_for_messages
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
@@ -84,7 +85,7 @@ async def get_my_groups(
     out_groups = []
     for g in groups:
         msg_stmt = (
-            select(Message.content)
+            select(Message)
             .where(
                 or_(
                     Message.group_id == g.id,
@@ -95,10 +96,16 @@ async def get_my_groups(
             .limit(1)
         )
         msg_result = await db.execute(msg_stmt)
-        last_msg = msg_result.scalar_one_or_none()
+        last_msg_obj = msg_result.scalar_one_or_none()
+        
+        last_msg_text = None
+        if last_msg_obj:
+            last_msg_text = last_msg_obj.content
+            if not last_msg_text and last_msg_obj.file_id:
+                last_msg_text = "📎 Файл"
         
         g_out = GroupOut.model_validate(g)
-        g_out.last_message = last_msg
+        g_out.last_message = last_msg_text
         out_groups.append(g_out)
 
     return out_groups
@@ -121,6 +128,7 @@ async def delete_group(
             detail="Only the group creator can delete this group"
         )
         
+    await delete_files_for_messages(db, group_id=group_id)
     await db.delete(group)
     await db.commit()
     return None

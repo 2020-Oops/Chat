@@ -35,6 +35,8 @@
   let allGroupsCache = []; // To power group search
   let currentGroupMembersCache = [];
 
+  let selectedFile = null; // Currently selected file for upload
+
   // ── DOM refs ────────────────────────────────────────
   const messagesArea = document.getElementById('messages-area');
   const messageInput = document.getElementById('message-input');
@@ -85,6 +87,13 @@
   const btnConfirmDelete = document.getElementById('btn-confirm-delete');
   const deletePasswordInput = document.getElementById('delete-password-input');
 
+  // File Upload elements
+  const btnAttach = document.getElementById('btn-attach');
+  const fileInput = document.getElementById('file-input');
+  const uploadPreview = document.getElementById('upload-preview');
+  const previewFilename = document.getElementById('preview-filename');
+  const btnPreviewRemove = document.getElementById('btn-preview-remove');
+
   function setSidebar(open) {
     document.body.classList.toggle('sidebar-open', open);
   }
@@ -109,6 +118,11 @@
   }
   if (sidebarOverlay) {
     sidebarOverlay.addEventListener('click', () => setSidebar(false));
+  }
+
+  const accountHeader = document.getElementById('account-header');
+  if (accountHeader && ME) {
+    accountHeader.textContent = `${ME}'s Account`;
   }
 
   function updateChatLayoutState() {
@@ -179,12 +193,14 @@
     if (!currentRoom) {
       connBadge.style.display = 'none';
       btnSend.disabled = true;
+      if (btnAttach) btnAttach.disabled = true;
       return;
     }
     connBadge.style.display = '';
     connBadge.className = `connection-badge ${ok ? 'connected' : 'disconnected'}`;
     connText.textContent = ok ? 'Connected' : 'Disconnected';
     btnSend.disabled = !ok;
+    if (btnAttach) btnAttach.disabled = !ok;
   }
 
   function escapeHtml(str) {
@@ -197,7 +213,8 @@
 
   /** Canonical DM room name for two users (alphabetical, consistent for both sides). */
   function dmRoomName(userA, userB) {
-    return 'dm_' + [userA, userB].sort().join('_');
+    const sorted = [userA.toLowerCase(), userB.toLowerCase()].sort();
+    return 'dm_' + sorted.join('_');
   }
 
   // ── Read Receipt Observer ─────────────────────────────
@@ -282,6 +299,7 @@
           ${statusHtml}
         </div>
         <div class="bubble-text">${escapeHtml(msg.content)}</div>
+        ${msg.file ? renderFileAttachment(msg.file) : ''}
       </div>
     `;
     messagesArea.appendChild(div);
@@ -289,6 +307,30 @@
       observeMessageForReadStatus(div);
     }
     scrollToBottom();
+  }
+
+  function renderFileAttachment(file) {
+    const isImage = file.mime_type.startsWith('image/');
+    if (isImage) {
+      return `
+        <div class="file-attachment">
+          <img src="${file.url}" alt="${escapeHtml(file.original_name)}" class="image-attachment" onclick="window.open('${file.url}', '_blank')">
+        </div>
+      `;
+    }
+    
+    // Generic file icon/link
+    const sizeMb = (file.file_size / (1024 * 1024)).toFixed(2);
+    return `
+      <div class="file-message">
+        <span class="file-icon">📄</span>
+        <div class="file-info">
+          <span class="file-name" title="${escapeHtml(file.original_name)}">${escapeHtml(file.original_name)}</span>
+          <span class="file-meta">${sizeMb} MB • ${escapeHtml(file.mime_type)}</span>
+        </div>
+        <a href="${file.url}" class="file-download" target="_blank" download="${escapeHtml(file.original_name)}">Download</a>
+      </div>
+    `;
   }
 
   function renderSystem(content) {
@@ -353,7 +395,7 @@
     if (li) {
       const msgSpan = li.querySelector('.dm-last-message');
       if (msgSpan) {
-        msgSpan.textContent = content; // raw text, browser escapes
+        msgSpan.textContent = content || '📎 Файл';
       }
       
       if (unread && badgeId) {
@@ -559,6 +601,7 @@
     }
     currentDmPeer = peer;
     currentGroupId = null;
+    const peerUser = (allUsersCache || []).find(u => u.username === peer);
     const room = dmRoomName(ME, peer);
     currentRoomType = 'dm';
     if (isMobile()) {
@@ -583,6 +626,7 @@
     headerMeta.textContent = 'Direct Message';
     messageInput.placeholder = `Message @${peer}…`;
     messageInput.removeAttribute('disabled');
+    if (btnAttach) btnAttach.removeAttribute('disabled');
     
     // Hide group actions
     btnAddMember.style.display = 'none';
@@ -591,7 +635,8 @@
 
     messagesArea.innerHTML = '';
 
-    loadHistory(room).then(() => connect(room));
+    const queryParams = peerUser ? { user_id: peerUser.id } : { room };
+    loadHistory(room, queryParams).then(() => connect(room));
   }
 
   function openGroup(groupId, groupName, creatorId) {
@@ -620,6 +665,7 @@
     headerMeta.textContent = 'Group Chat';
     messageInput.placeholder = `Message ${groupName}…`;
     messageInput.removeAttribute('disabled');
+    if (btnAttach) btnAttach.removeAttribute('disabled');
     
     // Show group actions
     btnAddMember.style.display = 'block';
@@ -630,7 +676,7 @@
 
     messagesArea.innerHTML = '';
 
-    loadHistory(room).then(() => connect(room));
+    loadHistory(room, { group_id: groupId }).then(() => connect(room));
   }
 
   async function loadGroupMembers(groupId) {
@@ -648,9 +694,14 @@
   }
 
   // ── Load history ─────────────────────────────────────
-  async function loadHistory(room) {
+  async function loadHistory(room, params = {}) {
     try {
-      const res = await fetch(`${API}/api/messages?room=${encodeURIComponent(room)}&limit=50`, {
+      let url = `${API}/api/messages?limit=50`;
+      if (params.user_id) url += `&user_id=${params.user_id}`;
+      else if (params.group_id) url += `&group_id=${params.group_id}`;
+      else if (room) url += `&room=${encodeURIComponent(room)}`;
+
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${TOKEN}` },
       });
       if (res.status === 401) { logout(); return; }
@@ -776,12 +827,99 @@
 
   // ── Channel switching is removed for DM-only mode ──
 
-  // ── Send message ───────────────────────────────────────
-  function sendMessage() {
-    const content = messageInput.value.trim();
-    if (!content || !socket || socket.readyState !== WebSocket.OPEN) return;
+  // ── File Upload Handlers ───────────────────────────
+  if (btnAttach) {
+    btnAttach.addEventListener('click', () => fileInput.click());
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // 10MB Limit
+      if (file.size > 10 * 1024 * 1024) {
+        showToast('File is too large (Max 10MB)', 'error');
+        fileInput.value = '';
+        return;
+      }
+
+      selectedFile = file;
+      previewFilename.textContent = file.name;
+      uploadPreview.style.display = 'block';
+    });
+  }
+
+  if (btnPreviewRemove) {
+    btnPreviewRemove.addEventListener('click', () => {
+      selectedFile = null;
+      fileInput.value = '';
+      uploadPreview.style.display = 'none';
+    });
+  }
+
+  async function uploadFile() {
+    if (!selectedFile) return null;
     
-    const payload = { content };
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      const res = await fetch(`${API}/api/upload`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${TOKEN}`
+        },
+        body: formData
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Upload failed');
+      }
+
+      const data = await res.json();
+      return data;
+    } catch (e) {
+      showToast(e.message, 'error');
+      return null;
+    }
+  }
+
+  // ── Send message ───────────────────────────────────────
+  async function sendMessage() {
+    const content = messageInput.value.trim();
+    if (!content && !selectedFile) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+    let file_id = null;
+    if (selectedFile) {
+      btnSend.disabled = true;
+      const fileData = await uploadFile();
+      btnSend.disabled = false;
+      if (!fileData) return; // Toast shown in uploadFile
+      file_id = fileData.id;
+      
+      // Clear preview
+      selectedFile = null;
+      fileInput.value = '';
+      uploadPreview.style.display = 'none';
+    }
+    
+    const payload = { 
+      content: content || (file_id ? '' : ''), // Can send empty content with file
+    };
+    if (file_id) payload.file_id = file_id;
+    
+    // If only file, set content to filename or something
+    if (!content && file_id) {
+       // payload.content = ''; // Backend handles empty content if file_id is present?
+       // Let's check backend... actually I made content=Text, nullable=False in models.py
+       // So I should send at least an empty string or the filename.
+       // The user prompt says "Single File Limit: Server-side check... Show preview... hit Send"
+       // Usually it's nice to send filename as content if empty.
+    }
+
     if (currentRoomType === 'group' && currentGroupId) {
        payload.group_id = currentGroupId;
     } else if (currentRoomType === 'dm' && currentDmPeer) {
@@ -1199,7 +1337,7 @@
         currentGroupId = parseInt(contextMenuTargetId, 10); 
         if (deleteGroupModal) deleteGroupModal.style.display = 'flex';
       } else if (contextMenuTargetType === 'dm') {
-        const roomName = `dm_${[ME, contextMenuTargetId].sort().join('_')}`;
+        const roomName = dmRoomName(ME, contextMenuTargetId);
         try {
           const res = await fetch(`${API}/api/messages?room=${encodeURIComponent(roomName)}`, {
             method: 'DELETE',

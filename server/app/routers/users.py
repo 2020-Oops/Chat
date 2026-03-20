@@ -14,6 +14,7 @@ from app.database import get_db
 from app.websocket import manager
 from app.models import User, Message, Group, GroupMember
 from app.schemas import Token, UserCreate, UserOut, UserDelete
+from app.utils import delete_files_for_messages
 
 router = APIRouter(prefix="/api", tags=["users"])
 
@@ -78,7 +79,7 @@ async def get_users(
     for u in users:
         room_name = "dm_" + "_".join(sorted([current_user.username, u.username]))
         msg_stmt = (
-            select(Message.content)
+            select(Message)
             .where(
                 or_(
                     Message.room == room_name,
@@ -90,10 +91,16 @@ async def get_users(
             .limit(1)
         )
         msg_result = await db.execute(msg_stmt)
-        last_msg = msg_result.scalar_one_or_none()
+        last_msg_obj = msg_result.scalar_one_or_none()
+        
+        last_msg_text = None
+        if last_msg_obj:
+            last_msg_text = last_msg_obj.content
+            if not last_msg_text and last_msg_obj.file_id:
+                last_msg_text = "📎 Файл"
         
         user_out = UserOut.model_validate(u)
-        user_out.last_message = last_msg
+        user_out.last_message = last_msg_text
         user_out.is_online = u.username in manager.global_online_users()
         out_users.append(user_out)
         
@@ -129,6 +136,9 @@ async def delete_me(
         
     # Delete direct messages where they are sender or recipient
     # Group messages get cascaded when either Group or User is deleted.
+    
+    # Cleanup files uploaded by the user
+    await delete_files_for_messages(db, sender_id=current_user.id)
     
     # Finally, delete the user.
     await db.delete(current_user)

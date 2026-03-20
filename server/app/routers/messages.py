@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, or_, and_, delete
+from sqlalchemy import select, or_, and_, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.auth import get_current_user
 from app.database import get_db
 from app.models import Group, GroupMember, Message, User
 from app.schemas import MessageOut
+from app.utils import delete_files_for_messages
 
 router = APIRouter(prefix="/api", tags=["messages"])
 
@@ -38,7 +39,7 @@ async def get_messages(
     if group_id is None:
         group_id = _parse_group_room(room)
 
-    query = select(Message).options(selectinload(Message.sender))
+    query = select(Message).options(selectinload(Message.sender), joinedload(Message.file))
 
     if group_id:
         # Group messages
@@ -76,9 +77,8 @@ async def get_messages(
             )
         )
     else:
-        # Legacy room, defaults to 'general' if everything is missing
-        target_room = room if room else "general"
-        query = query.where(Message.room == target_room)
+        target_room = room.lower() if room else "general"
+        query = query.where(func.lower(Message.room) == target_room)
 
     result = await db.execute(
         query.order_by(Message.timestamp.desc()).limit(limit)
@@ -93,21 +93,18 @@ async def delete_chat(
     db: AsyncSession = Depends(get_db)
 ):
     """Delete all messages in a specific room (e.g., DM room)."""
-    if room.startswith("dm_"):
-        # Build the expected room name from the current user
-        # and verify it matches — prevents user "vi" deleting "dm_vitalik_bob"
-        parts = room[3:]  # remove 'dm_' prefix
-        # The room is dm_{sorted_user1}_{sorted_user2}
-        # We need to verify the current user is one of the two participants
-        # Safe approach: reconstruct all possible DM rooms for this user
-        # and check if the requested room matches
-        me = current_user.username
-        if not (
-            room == "dm_" + "_".join(sorted([me, parts.replace(me, "", 1).strip("_")]))
-            and me in parts
-        ):
+    room_lower = room.lower()
+    if room_lower.startswith("dm_"):
+        # Reconstruct valid DM room based on current user
+        # This prevents user A from deleting "dm_B_C"
+        parts = room_lower[3:]  # remove 'dm_' prefix
+        me = current_user.username.lower()
+        
+        # Verify that current user is one of the participants in this room name
+        if me not in parts.lower():
             raise HTTPException(status_code=403, detail="Not your DM room")
             
-    await db.execute(delete(Message).where(Message.room == room))
+    await delete_files_for_messages(db, room=room_lower)
+    await db.execute(delete(Message).where(func.lower(Message.room) == room_lower))
     await db.commit()
     return

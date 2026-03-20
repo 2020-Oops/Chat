@@ -63,6 +63,20 @@ class TokenData(BaseModel):
     username: Optional[str] = None
 
 
+# ── File schemas ──────────────────────────────────────────────
+
+class FileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    original_name: str
+    stored_name: str
+    file_size: int
+    mime_type: str
+    created_at: datetime
+    url: Optional[str] = None # Helper for frontend
+
+
 # ── Message schemas ───────────────────────────────────────────────────────────
 
 class MessageCreate(BaseModel):
@@ -85,3 +99,4 @@ class MessageOut(BaseModel):
     recipient_id: Optional[int] = None
     timestamp: datetime
     sender: UserOut
+    file: Optional[FileOut] = None

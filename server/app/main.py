@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
 from app.routers import users, messages
@@ -35,8 +36,12 @@ app.add_middleware(
 # ── REST Routers ──────────────────────────────────────────────────────────────
 app.include_router(users.router)
 app.include_router(messages.router)
-from app.routers import groups
+from app.routers import groups, upload
 app.include_router(groups.router)
+app.include_router(upload.router)
+
+# ── Static Files (Uploads) ────────────────────────────────────────────────────
+app.mount("/uploads", StaticFiles(directory="/uploads"), name="uploads")
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 @app.websocket("/ws/{room}")
