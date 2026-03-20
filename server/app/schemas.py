@@ -12,6 +12,10 @@ class UserCreate(BaseModel):
     display_name: Optional[str] = None
 
 
+class UserDelete(BaseModel):
+    password: str
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -19,12 +23,15 @@ class UserOut(BaseModel):
     username: str
     display_name: Optional[str] = None
     created_at: datetime
+    last_message: Optional[str] = None
+    is_online: bool = False
 
 
 # ── Group schemas ────────────────────────────────────────────────────────────
 
 class GroupCreate(BaseModel):
     name: str
+    initial_members: list[str] = []
 
 class GroupOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -33,6 +40,7 @@ class GroupOut(BaseModel):
     name: str
     created_at: datetime
     creator_id: int
+    last_message: Optional[str] = None
 
 class GroupMemberOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -69,6 +77,9 @@ class MessageOut(BaseModel):
 
     id: int
     content: str
+    status: str
+    delivered_at: Optional[datetime] = None
+    read_at: Optional[datetime] = None
     room: Optional[str] = None
     group_id: Optional[int] = None
     recipient_id: Optional[int] = None
