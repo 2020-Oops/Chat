@@ -1,33 +1,33 @@
 # Chat App — FastAPI + WebSocket
 
-Ниже самое простое и понятное руководство по запуску.
+Нижче найпростіша та зрозуміла інструкція із запуску.
 
 ---
 
-## Быстрый старт (Docker, 1 команда)
+## Швидкий старт (Docker, 1 команда)
 
-Нужен установленный Docker Desktop.
+Потрібен встановлений Docker Desktop.
 
 ```bash
 docker compose up --build
 ```
 
-После запуска:
+Після запуску:
 - Фронтенд: **http://localhost:3000**
 - API: **http://localhost:8000**
 
-Остановить:
+Зупинити:
 ```bash
 docker compose down
 ```
 
-Примечания:
-- В корне есть `.env` с `COMPOSE_PROJECT_NAME=chatapp`, чтобы Compose работал корректно даже в путях с нестандартными символами.
-- Данные Postgres сохраняются в volume `pgdata`.
+Примітки:
+- У корені є `.env` з `COMPOSE_PROJECT_NAME=chatapp`, щоб Compose коректно працював навіть у шляхах із нестандартними символами.
+- Дані Postgres зберігаються у volume `pgdata`.
 
 ---
 
-## Ручной запуск без Docker (локально)
+## Ручний запуск без Docker (локально)
 
 ### 1) Сервер
 ```bash
@@ -35,7 +35,7 @@ cd server
 pip install -r requirements.txt
 ```
 
-Создайте `server/.env`:
+Створіть `server/.env`:
 ```env
 DATABASE_URL=sqlite+aiosqlite:///./chat.db
 SECRET_KEY=local-dev-secret-key
@@ -44,7 +44,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES=1440
 CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
 ```
 
-Накатите миграции и запустите сервер:
+Застосуйте міграції та запустіть сервер:
 ```bash
 python -m alembic upgrade head
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -56,26 +56,26 @@ cd frontend
 python -m http.server 3000
 ```
 
-Откройте: **http://localhost:3000**
+Відкрийте: **http://localhost:3000**
 
 ---
 
-## Как задать API/WS для фронтенда без правок кода
+## Як задати API/WS для фронтенду без змін у коді
 
-Фронтенд читает runtime‑конфиг из `frontend/config.js` и умеет переопределяться без редактирования файлов:
+Фронтенд читає runtime‑конфіг із `frontend/config.js` і може перевизначатися без редагування файлів:
 
-1) **Query‑params** (быстро для тестов):
+1) **Query‑params** (швидко для тестів):
 ```
 http://localhost:3000/chat.html?api=https://YOUR_API&ws=wss://YOUR_API
 ```
 
-2) **LocalStorage** (один раз в консоли браузера):
+2) **LocalStorage** (один раз у консолі браузера):
 ```js
 localStorage.setItem('chat_api_base', 'https://YOUR_API');
 localStorage.setItem('chat_ws_base', 'wss://YOUR_API');
 ```
 
-3) **Глобальный конфиг** (через хостинг или в `frontend/config.js`):
+3) **Глобальний конфіг** (через хостинг або у `frontend/config.js`):
 ```js
 window.CHAT_CONFIG = {
   API_BASE_URL: 'https://YOUR_API',
@@ -85,7 +85,7 @@ window.CHAT_CONFIG = {
 
 ---
 
-## Тесты
+## Тести
 
 ```bash
 cd server
@@ -94,10 +94,10 @@ python -m pytest tests/ -v
 
 ---
 
-## Кратко про архитектуру
+## Коротко про архітектуру
 
 - FastAPI + SQLAlchemy async
-- JWT‑аутентификация
+- JWT‑автентифікація
 - WebSocket для realtime
-- БД: SQLite локально, PostgreSQL в проде
-- Миграции через Alembic
+- БД: SQLite локально, PostgreSQL у проді
+- Міграції через Alembic
