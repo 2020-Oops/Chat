@@ -239,14 +239,6 @@
     <!-- ── Typing ──────────────────────────────────── -->
     <div class="typing-indicator" id="typing-indicator"></div>
 
-    <!-- ── Upload Preview ────────────────────────── -->
-    <div id="upload-preview" class="upload-preview" style="display: none;">
-      <div class="preview-content">
-        <span class="preview-filename" id="preview-filename"></span>
-        <button class="btn-icon preview-remove" id="btn-preview-remove" title="Remove file">&times;</button>
-      </div>
-    </div>
-
     <!-- ── Input ──────────────────────────────────── -->
     <div class="message-input-area">
       <input type="file" id="file-input" style="display: none;">
@@ -256,6 +248,13 @@
         </svg>
       </button>
       <div class="message-input-wrap">
+        <!-- ── Upload Preview ────────────────────────── -->
+        <div id="upload-preview" class="upload-preview" style="display: none;">
+          <div class="preview-content">
+            <span class="preview-filename" id="preview-filename"></span>
+            <button class="btn-icon preview-remove" id="btn-preview-remove" title="Remove file">&times;</button>
+          </div>
+        </div>
         <textarea
           id="message-input"
           class="message-input"
