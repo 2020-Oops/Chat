@@ -15,13 +15,13 @@
       <div class="auth-logo">
         <div class="logo-icon">💬</div>
         <h1>ChatApp</h1>
-        <p>Real-time messaging</p>
+        <p data-i18n="app_tagline">Real-time messaging</p>
       </div>
 
       <!-- Tabs -->
       <div class="auth-tabs" role="tablist">
-        <button class="tab-btn active" id="tab-login" role="tab" onclick="switchTab('login')">Sign In</button>
-        <button class="tab-btn" id="tab-register" role="tab" onclick="switchTab('register')">Register</button>
+        <button class="tab-btn active" id="tab-login" role="tab" onclick="switchTab('login')" data-i18n="sign_in">Sign In</button>
+        <button class="tab-btn" id="tab-register" role="tab" onclick="switchTab('register')" data-i18n="register">Register</button>
       </div>
 
       <!-- Error -->
@@ -30,35 +30,35 @@
       <!-- Login Form -->
       <form id="form-login" onsubmit="handleLogin(event)" autocomplete="on">
         <div class="form-group">
-          <label for="login-username">Username</label>
-          <input id="login-username" type="text" placeholder="Enter username" autocomplete="username" required />
+          <label for="login-username" data-i18n="username_label">Username</label>
+          <input id="login-username" type="text" data-i18n-placeholder="enter_username" placeholder="Enter username" autocomplete="username" required />
         </div>
         <div class="form-group">
-          <label for="login-password">Password</label>
-          <input id="login-password" type="password" placeholder="Enter password" autocomplete="current-password"
-            required />
+          <label for="login-password" data-i18n="password_label">Password</label>
+          <input id="login-password" type="password" data-i18n-placeholder="enter_password" placeholder="Enter password" autocomplete="current-password" required />
         </div>
-        <button type="submit" class="btn btn-primary" id="btn-login">Sign In</button>
+        <button type="submit" class="btn btn-primary" id="btn-login" data-i18n="sign_in">Sign In</button>
       </form>
 
       <!-- Register Form -->
       <form id="form-register" style="display:none" onsubmit="handleRegister(event)" autocomplete="on">
         <div class="form-group">
-          <label for="reg-username">Username</label>
-          <input id="reg-username" type="text" placeholder="Choose a username" autocomplete="username" required
+          <label for="reg-username" data-i18n="username_label">Username</label>
+          <input id="reg-username" type="text" data-i18n-placeholder="choose_username" placeholder="Choose a username" autocomplete="username" required
             minlength="3" maxlength="32" />
         </div>
         <div class="form-group">
-          <label for="reg-password">Password</label>
-          <input id="reg-password" type="password" placeholder="Create a password" autocomplete="new-password" required
+          <label for="reg-password" data-i18n="password_label">Password</label>
+          <input id="reg-password" type="password" data-i18n-placeholder="create_password" placeholder="Create a password" autocomplete="new-password" required
             minlength="6" />
         </div>
-        <button type="submit" class="btn btn-primary" id="btn-register">Create Account</button>
+        <button type="submit" class="btn btn-primary" id="btn-register" data-i18n="create_account">Create Account</button>
       </form>
     </div>
   </div>
 
   <script src="./config.js"></script>
+  <script src="./i18n.js"></script>
   <script>
     const API = (window.ChatConfig && window.ChatConfig.apiBase) ? window.ChatConfig.apiBase : '';
 
@@ -66,6 +66,11 @@
     if (localStorage.getItem('token')) {
       window.location.href = '/chat.html';
     }
+
+    // Apply translations on load
+    document.addEventListener('DOMContentLoaded', () => {
+      window.i18n.applyTranslations();
+    });
 
     function switchTab(tab) {
       document.getElementById('form-login').style.display = tab === 'login' ? '' : 'none';
@@ -84,7 +89,13 @@
     function setLoading(btnId, loading) {
       const btn = document.getElementById(btnId);
       btn.disabled = loading;
-      btn.textContent = loading ? 'Please wait…' : (btnId === 'btn-login' ? 'Sign In' : 'Create Account');
+      if (loading) {
+        btn.textContent = window.i18n.t('please_wait');
+      } else {
+        btn.textContent = btnId === 'btn-login'
+          ? window.i18n.t('sign_in')
+          : window.i18n.t('create_account');
+      }
     }
 
     async function handleLogin(e) {

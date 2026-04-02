@@ -2,6 +2,9 @@
 (function () {
   'use strict';
 
+  // Shorthand for i18n translations
+  const t = (key) => window.i18n ? window.i18n.t(key) : key;
+
   // ── Auth guard ─────────────────────────────────────
   const TOKEN = localStorage.getItem('token');
   const ME = localStorage.getItem('username');
@@ -198,7 +201,7 @@
     }
     connBadge.style.display = '';
     connBadge.className = `connection-badge ${ok ? 'connected' : 'disconnected'}`;
-    connText.textContent = ok ? 'Connected' : 'Disconnected';
+    connText.textContent = ok ? t('connected') : t('disconnected');
     btnSend.disabled = !ok;
     if (btnAttach) btnAttach.disabled = !ok;
   }
@@ -328,7 +331,7 @@
           <span class="file-name" title="${escapeHtml(file.original_name)}">${escapeHtml(file.original_name)}</span>
           <span class="file-meta">${sizeMb} MB • ${escapeHtml(file.mime_type)}</span>
         </div>
-        <a href="${file.url}" class="file-download" target="_blank" download="${escapeHtml(file.original_name)}">Download</a>
+        <a href="${file.url}" class="file-download" target="_blank" download="${escapeHtml(file.original_name)}">${t('download')}</a>
       </div>
     `;
   }
@@ -395,7 +398,7 @@
     if (li) {
       const msgSpan = li.querySelector('.dm-last-message');
       if (msgSpan) {
-        msgSpan.textContent = content || '📎 Файл';
+        msgSpan.textContent = content || t('file_preview');
       }
       
       if (unread && badgeId) {
@@ -451,7 +454,7 @@
     const dmDisplay = (tab === 'chats' || tab === 'contacts') ? '' : 'none';
     if (dmListHeader) {
       dmListHeader.style.display = dmDisplay;
-      dmListHeader.textContent = tab === 'chats' ? 'Direct Messages' : 'All Contacts';
+      dmListHeader.textContent = tab === 'chats' ? t('direct_messages') : t('all_contacts');
       dmListHeader.style.marginTop = tab === 'chats' ? '1rem' : '0';
     }
     if (searchUsersContainer) searchUsersContainer.style.display = dmDisplay;
@@ -474,11 +477,11 @@
     if (activeSidebarTab === 'chats') {
        baseList = allUsersCache.filter(u => u.last_message);
        const emptyText = dmEmpty.querySelector('span');
-       if (emptyText) emptyText.textContent = 'No active chats yet';
+       if (emptyText) emptyText.textContent = t('no_active_chats');
     } else {
        baseList = allUsersCache;
        const emptyText = dmEmpty.querySelector('span');
-       if (emptyText) emptyText.textContent = 'No contacts found';
+       if (emptyText) emptyText.textContent = t('no_contacts');
     }
     // Apply search filter
     if (query) {
@@ -518,7 +521,7 @@
         li.className = '';
       }
       
-      const lastMsgText = user.last_message || 'Чат порожній';
+      const lastMsgText = user.last_message || t('chat_empty_preview');
       const isOnlineStr = user.is_online ? 'online' : 'offline';
       li.innerHTML = `
         <div class="avatar-container">
@@ -581,7 +584,7 @@
         li.className = '';
       }
 
-      const lastMsgText = group.last_message || 'Чат порожній';
+      const lastMsgText = group.last_message || t('chat_empty_preview');
       li.innerHTML = `
         <span class="dm-avatar">👥</span>
         <div class="dm-info">
@@ -623,8 +626,8 @@
     // Update header
     headerIcon.textContent = '✉';
     headerRoom.textContent = peer;
-    headerMeta.textContent = 'Direct Message';
-    messageInput.placeholder = `Message @${peer}…`;
+    headerMeta.textContent = t('direct_message_meta');
+    messageInput.placeholder = `${t('message_at')}${peer}…`;
     messageInput.removeAttribute('disabled');
     if (btnAttach) btnAttach.removeAttribute('disabled');
     
@@ -662,8 +665,8 @@
     // Update header
     headerIcon.textContent = '👥';
     headerRoom.textContent = groupName;
-    headerMeta.textContent = 'Group Chat';
-    messageInput.placeholder = `Message ${groupName}…`;
+    headerMeta.textContent = t('group_chat_meta');
+    messageInput.placeholder = `${t('message_group')}${groupName}…`;
     messageInput.removeAttribute('disabled');
     if (btnAttach) btnAttach.removeAttribute('disabled');
     
@@ -730,7 +733,7 @@
     const el = document.createElement('div');
     el.id = 'empty-chat-placeholder';
     el.className = 'empty-chat-placeholder';
-    el.textContent = 'Чат порожній';
+    el.textContent = t('chat_empty');
     messagesArea.appendChild(el);
   }
 
@@ -750,7 +753,7 @@
     currentRoom = room;
     updateChatLayoutState();
     setConnected(false);
-    connText.textContent = 'Connecting…';
+    connText.textContent = t('connecting');
 
     const url = `${WS_BASE}/ws/${encodeURIComponent(room)}?token=${TOKEN}`;
     socket = new WebSocket(url);
@@ -815,7 +818,7 @@
     socket.onclose = (ev) => {
       setConnected(false);
       if (ev.code === 4001) { logout(); return; }
-      connText.textContent = `Reconnecting in ${Math.round(reconnectDelay / 1000)}s…`;
+      connText.textContent = `${t('reconnecting')} ${Math.round(reconnectDelay / 1000)}${t('reconnecting_suffix')}`;
       reconnectTimer = setTimeout(() => {
         reconnectDelay = Math.min(reconnectDelay * 2, 30000);
         if (currentRoom) connect(currentRoom);
@@ -839,7 +842,7 @@
 
       // 10MB Limit
       if (file.size > 10 * 1024 * 1024) {
-        showToast('File is too large (Max 10MB)', 'error');
+        showToast(t('toast_file_large'), 'error');
         fileInput.value = '';
         return;
       }
@@ -961,7 +964,7 @@
     });
 
     if (availableUsers.length === 0) {
-      createGroupUsers.innerHTML = '<li class="dm-empty"><span style="font-size:0.8rem;color:var(--text-muted);">No users found</span></li>';
+      createGroupUsers.innerHTML = `<li class="dm-empty"><span style="font-size:0.8rem;color:var(--text-muted);">${t('no_users_found')}</span></li>`;
       return;
     }
 
@@ -1027,15 +1030,15 @@
         createGroupModal.style.display = 'none';
         newGroupNameInput.value = '';
         pendingCreateGroupMembers = [];
-        showToast('Group created successfully.', 'success');
+        showToast(t('toast_group_created'), 'success');
         loadUsers(); // Refresh groups
       } else {
         const error = await res.json();
-        showToast(error.detail || 'Failed to create group', 'error');
+        showToast(error.detail || t('toast_group_create_err'), 'error');
       }
     } catch (e) {
       console.error(e);
-      showToast('Error creating group', 'error');
+      showToast(t('toast_group_create_ex'), 'error');
     } finally {
       btnSubmitGroup.disabled = false;
     }
@@ -1057,7 +1060,7 @@
     });
 
     if (availableUsers.length === 0) {
-      searchMemberResults.innerHTML = '<li class="dm-empty"><span style="font-size:0.8rem;color:var(--text-muted);">No users found</span></li>';
+      searchMemberResults.innerHTML = `<li class="dm-empty"><span style="font-size:0.8rem;color:var(--text-muted);">${t('no_users_found')}</span></li>`;
       return;
     }
 
@@ -1077,14 +1080,14 @@
           });
           if (res.ok) {
             loadGroupMembers(currentGroupId); // Refresh member list
-            showToast(`${u.username} has been added to the group.`, 'success');
+            showToast(`${u.username} ${t('toast_member_added')}`, 'success');
             if (addMemberModal) addMemberModal.style.display = 'none';
           } else {
             const error = await res.json();
-            showToast(error.detail || 'Failed to add user', 'error');
+            showToast(error.detail || t('toast_member_add_err'), 'error');
           }
         } catch (e) {
-          showToast('Error adding user', 'error');
+          showToast(t('toast_member_add_ex'), 'error');
         }
       });
       searchMemberResults.appendChild(li);
@@ -1147,10 +1150,10 @@
         });
         if (res.ok || res.status === 204) {
           if (deleteGroupModal) deleteGroupModal.style.display = 'none';
-          showToast('Group deleted.', 'success');
+          showToast(t('toast_group_deleted'), 'success');
           messagesArea.innerHTML = '';
           onlineList.innerHTML = '';
-          headerRoom.textContent = 'Select a chat';
+          headerRoom.textContent = t('select_chat_header');
           headerMeta.textContent = '';
           messageInput.setAttribute('disabled', 'true');
           btnAddMember.style.display = 'none';
@@ -1169,10 +1172,10 @@
           loadUsers();
         } else {
           const error = await res.json();
-          showToast(error.detail || 'Failed to delete group (must be creator).', 'error');
+          showToast(error.detail || t('toast_group_del_err'), 'error');
         }
       } catch (e) {
-        showToast('Error deleting group', 'error');
+        showToast(t('toast_group_del_ex'), 'error');
       } finally {
         btnConfirmDeleteGroup.disabled = false;
       }
@@ -1191,10 +1194,10 @@
         headers: { Authorization: `Bearer ${TOKEN}` }
       });
       if (res.ok || res.status === 204) {
-        showToast('Left group.', 'success');
+        showToast(t('toast_left_group'), 'success');
         messagesArea.innerHTML = '';
         onlineList.innerHTML = '';
-        headerRoom.textContent = 'Select a chat';
+        headerRoom.textContent = t('select_chat_header');
         headerMeta.textContent = '';
         messageInput.setAttribute('disabled', 'true');
         btnAddMember.style.display = 'none';
@@ -1213,10 +1216,10 @@
         loadUsers();
       } else {
         const error = await res.json();
-        showToast(error.detail || 'Failed to leave group / Creator cannot leave.', 'error');
+        showToast(error.detail || t('toast_leave_err'), 'error');
       }
     } catch (e) {
-      showToast('Error leaving group', 'error');
+      showToast(t('toast_leave_ex'), 'error');
     }
   });
 
@@ -1240,7 +1243,7 @@
     btnConfirmDelete.addEventListener('click', async () => {
       const password = deletePasswordInput.value;
       if (!password) {
-        showToast('Please enter your password to confirm.', 'warning');
+        showToast(t('toast_pw_required'), 'warning');
         return;
       }
       btnConfirmDelete.disabled = true;
@@ -1255,15 +1258,15 @@
         });
         
         if (res.ok || res.status === 204) {
-          showToast('Account deleted successfully.', 'success');
+          showToast(t('toast_acc_deleted'), 'success');
           setTimeout(() => logout(), 1000);
         } else {
           const error = await res.json();
-          showToast(error.detail || 'Failed to delete account (incorrect password?).', 'error');
+          showToast(error.detail || t('toast_acc_del_err'), 'error');
         }
       } catch (e) {
         console.error(e);
-        showToast('Error deleting account', 'error');
+        showToast(t('toast_acc_del_ex'), 'error');
       } finally {
         btnConfirmDelete.disabled = false;
       }
@@ -1344,21 +1347,21 @@
             headers: { Authorization: `Bearer ${TOKEN}` }
           });
           if (res.ok || res.status === 204) {
-            showToast('Чат видалено', 'success');
+            showToast(t('toast_chat_deleted'), 'success');
             if (currentDmPeer === contextMenuTargetId) {
               messagesArea.innerHTML = '';
               const emptySpan = document.createElement('div');
               emptySpan.className = 'dm-empty';
-              emptySpan.innerHTML = '<span style="font-size:0.8rem;color:var(--text-muted);margin:1rem;display:block;">Чат порожній</span>';
+              emptySpan.innerHTML = `<span style="font-size:0.8rem;color:var(--text-muted);margin:1rem;display:block;">${t('chat_empty')}</span>`;
               messagesArea.appendChild(emptySpan);
             }
             loadUsers();
           } else {
             const err = await res.json();
-            showToast(err.detail || 'Помилка видалення чату', 'error');
+            showToast(err.detail || t('toast_chat_del_err'), 'error');
           }
         } catch (e) {
-          showToast('Помилка сервера', 'error');
+          showToast(t('toast_server_err'), 'error');
         }
       }
     });
@@ -1421,6 +1424,49 @@
   }
 
   // ── Init ───────────────────────────────────────────────
+
+  // Apply translations and sync language switcher buttons on start and on change
+  function syncLangButtons() {
+    const lang = window.i18n ? window.i18n.getLang() : 'en';
+    const btnEn = document.getElementById('lang-btn-en');
+    const btnUk = document.getElementById('lang-btn-uk');
+    if (btnEn) btnEn.classList.toggle('active', lang === 'en');
+    if (btnUk) btnUk.classList.toggle('active', lang === 'uk');
+  }
+
+  // Called whenever language changes — re-apply all dynamic text
+  function onLangChange() {
+    if (window.i18n) window.i18n.applyTranslations();
+    syncLangButtons();
+
+    // Update runtime-rendered strings that are set by JS (not data-i18n)
+    if (headerRoom && !currentRoom) {
+      headerRoom.textContent = t('select_chat');
+    }
+    if (currentRoom && currentRoomType === 'dm' && currentDmPeer) {
+      headerMeta.textContent = t('direct_message_meta');
+      messageInput.placeholder = `${t('message_at')}${currentDmPeer}…`;
+    } else if (currentRoom && currentRoomType === 'group') {
+      headerMeta.textContent = t('group_chat_meta');
+    }
+    // Re-render lists so last message previews get translated
+    renderDmListBase();
+    renderGroupListBase();
+    // Update account header
+    const accountHeader = document.getElementById('account-header');
+    if (accountHeader && ME) {
+      accountHeader.textContent = `${ME}'s ${t('account_label') === 'АКАУНТ' ? 'Акаунт' : 'Account'}`;
+    }
+  }
+
+  document.addEventListener('langchange', onLangChange);
+
+  // Initial setup
+  if (window.i18n) {
+    window.i18n.applyTranslations();
+    syncLangButtons();
+  }
+
   connectPresence();
   updateChatLayoutState(); // Added call
   loadUsers();
