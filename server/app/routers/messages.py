@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import Group, GroupMember, Message, User
 from app.schemas import MessageOut
 from app.utils import delete_files_for_messages
+from app.websocket import manager
 
 router = APIRouter(prefix="/api", tags=["messages"])
 
@@ -94,17 +95,38 @@ async def delete_chat(
 ):
     """Delete all messages in a specific room (e.g., DM room)."""
     room_lower = room.lower()
+    peer_username: str | None = None
+
     if room_lower.startswith("dm_"):
         # Reconstruct valid DM room based on current user
         # This prevents user A from deleting "dm_B_C"
         parts = room_lower[3:]  # remove 'dm_' prefix
         me = current_user.username.lower()
-        
+
         # Verify that current user is one of the participants in this room name
         if me not in parts.lower():
             raise HTTPException(status_code=403, detail="Not your DM room")
-            
+
+        # Find the peer username from the room name (format: dm_usera_userb)
+        peer_name_lower = parts.replace(me, "").strip("_")
+        peer_result = await db.execute(
+            select(User).where(func.lower(User.username) == peer_name_lower)
+        )
+        peer = peer_result.scalar_one_or_none()
+        if peer:
+            peer_username = peer.username
+
     await delete_files_for_messages(db, room=room_lower)
     await db.execute(delete(Message).where(func.lower(Message.room) == room_lower))
     await db.commit()
+
+    # Notify both participants via WebSocket so their sidebars update in real-time
+    chat_deleted_payload = {
+        "type": "chat_deleted",
+        "room": room_lower,
+    }
+    await manager.send_to_user(current_user.username, chat_deleted_payload)
+    if peer_username:
+        await manager.send_to_user(peer_username, chat_deleted_payload)
+
     return

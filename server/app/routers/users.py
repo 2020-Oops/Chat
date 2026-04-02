@@ -62,7 +62,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
 @router.get("/users", response_model=list[UserOut])
 async def get_users(
     q: str | None = None,
-    limit: int = 20,
+    limit: int = 1000,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -132,13 +132,19 @@ async def delete_me(
     result = await db.execute(stmt)
     owned_groups = result.scalars().all()
     for g in owned_groups:
+        await delete_files_for_messages(db, group_id=g.id)
         await db.delete(g)
         
-    # Delete direct messages where they are sender or recipient
+    # Delete files for all messages where they are sender or recipient
     # Group messages get cascaded when either Group or User is deleted.
-    
-    # Cleanup files uploaded by the user
-    await delete_files_for_messages(db, sender_id=current_user.id)
+    from sqlalchemy import or_
+    msgs_stmt = select(Message.id).where(
+        or_(Message.sender_id == current_user.id, Message.recipient_id == current_user.id)
+    )
+    res = await db.execute(msgs_stmt)
+    m_ids = res.scalars().all()
+    if m_ids:
+        await delete_files_for_messages(db, message_ids=list(m_ids))
     
     # Finally, delete the user.
     await db.delete(current_user)

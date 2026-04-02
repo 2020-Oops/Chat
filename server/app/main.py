@@ -31,6 +31,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # ── REST Routers ──────────────────────────────────────────────────────────────
@@ -41,7 +42,8 @@ app.include_router(groups.router)
 app.include_router(upload.router)
 
 # ── Static Files (Uploads) ────────────────────────────────────────────────────
-app.mount("/uploads", StaticFiles(directory="/uploads"), name="uploads")
+from app.routers import uploads_serve
+app.include_router(uploads_serve.router)
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 @app.websocket("/ws/{room}")

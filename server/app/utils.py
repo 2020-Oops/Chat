@@ -26,8 +26,12 @@ async def delete_files_for_messages(db, message_ids=None, room=None, group_id=No
     if not files_to_delete:
         return
         
-    # 1. Delete File records from database
+    # 1. Sever the foreign key constraint by setting file_id to None
     file_ids = [f[0] for f in files_to_delete]
+    from sqlalchemy import update
+    await db.execute(update(Message).where(Message.file_id.in_(file_ids)).values(file_id=None))
+    
+    # 2. Delete File records from database
     await db.execute(delete(File).where(File.id.in_(file_ids)))
     
     # We don't commit here; the caller should commit after message deletion.

@@ -9,7 +9,7 @@
   <style>
     /* Basic modal styling */
     .modal { position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; }
-    .modal-content { background: var(--surface); padding: 2rem; border-radius: var(--radius); width: 100%; max-width: 400px; box-shadow: var(--shadow-lg); }
+    .modal-content { background: var(--bg); border: 1px solid var(--border); padding: 2rem; border-radius: var(--radius); width: 100%; max-width: 400px; box-shadow: var(--shadow, 0 10px 30px rgba(0,0,0,0.5)); }
     .modal-actions { display: flex; justify-content: flex-end; gap: 1rem; }
     .btn-icon { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; }
     .btn-icon:hover { color: var(--text); }

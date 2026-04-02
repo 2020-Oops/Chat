@@ -234,8 +234,7 @@ async def websocket_endpoint(websocket: WebSocket, room: str, token: str):
                     )
                     msg = result.scalar_one()
 
-                # Broadcast to room
-                await manager.broadcast(room, {
+                payload = {
                     "type": "message",
                     "id": msg.id,
                     "content": msg.content,
@@ -258,12 +257,32 @@ async def websocket_endpoint(websocket: WebSocket, room: str, token: str):
                         "url": f"/uploads/{msg.file.stored_name}"
                     } if msg.file else None,
                     "online": manager.online_users(room),
-                })
+                }
+
+                # Broadcast to room (all users currently in this chat)
+                await manager.broadcast(room, payload)
+
+                # For DMs: also notify the recipient directly so their sidebar
+                # updates even if they haven't opened this chat yet.
+                if recipient_id and not group_id:
+                    room_online_usernames = {u for _, u in manager._get_room(room)}
+                    async with AsyncSessionLocal() as notify_db:
+                        from app.models import User as UserModel
+                        recipient_user = await notify_db.get(UserModel, recipient_id)
+                    if recipient_user:
+                        recipient_username = recipient_user.username
+                        # Only send if they're online but not already in the room
+                        if recipient_username in manager.global_online_users() and recipient_username not in room_online_usernames:
+                            await manager.send_to_user(recipient_username, payload)
 
                 # Log to file
                 await log_to_file(room, user.username, content)
 
         except WebSocketDisconnect:
+            pass
+        except Exception as e:
+            print(f"WebSocket Error: {e}")
+        finally:
             manager.disconnect(websocket, room)
             
             # 2 second grace period for chat switching to prevent flicker

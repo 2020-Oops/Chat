@@ -301,7 +301,7 @@
           <span class="bubble-time">${formatTime(msg.timestamp)}</span>
           ${statusHtml}
         </div>
-        <div class="bubble-text">${escapeHtml(msg.content)}</div>
+        ${msg.content ? `<div class="bubble-text">${escapeHtml(msg.content)}</div>` : ''}
         ${msg.file ? renderFileAttachment(msg.file) : ''}
       </div>
     `;
@@ -309,15 +309,60 @@
     if (!isOwn) {
       observeMessageForReadStatus(div);
     }
+    initAudioPlayers(div);
     scrollToBottom();
   }
 
+  window.forceDownload = async function(url, filename) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(blobUrl);
+      a.remove();
+    } catch (e) {
+      console.error(e);
+      window.open(url, '_blank');
+    }
+  };
+
   function renderFileAttachment(file) {
+    const fullUrl = file.url.startsWith('http') ? file.url : API + file.url;
     const isImage = file.mime_type.startsWith('image/');
     if (isImage) {
       return `
         <div class="file-attachment">
-          <img src="${file.url}" alt="${escapeHtml(file.original_name)}" class="image-attachment" onclick="window.open('${file.url}', '_blank')">
+          <img src="${fullUrl}" alt="${escapeHtml(file.original_name)}" class="image-attachment" onclick="window.open('${fullUrl}', '_blank')">
+        </div>
+      `;
+    }
+    
+    const isAudio = file.mime_type.startsWith('audio/');
+    if (isAudio) {
+      const sizeMb = (file.file_size / (1024 * 1024)).toFixed(2);
+      const fileExt = file.mime_type.split('/')[1]?.toUpperCase() || 'AUDIO';
+      return `
+        <div class="custom-audio-player">
+          <audio crossorigin="anonymous" preload="metadata" src="${fullUrl}" style="display:none"></audio>
+          <button class="audio-play-btn">▶</button>
+          
+          <div class="audio-info-container">
+            <div class="audio-filename" title="${escapeHtml(file.original_name)}">${escapeHtml(file.original_name)}</div>
+            <div class="audio-timeline"><div class="audio-progress"></div></div>
+            <div class="audio-meta">${sizeMb} MB • ${escapeHtml(fileExt)}</div>
+          </div>
+          
+          <span class="audio-time">0:00</span>
+          <a href="javascript:void(0)" class="audio-download-btn" onclick="forceDownload('${fullUrl}', '${escapeHtml(file.original_name)}')" title="${t('download')}">
+            <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          </a>
         </div>
       `;
     }
@@ -331,9 +376,96 @@
           <span class="file-name" title="${escapeHtml(file.original_name)}">${escapeHtml(file.original_name)}</span>
           <span class="file-meta">${sizeMb} MB • ${escapeHtml(file.mime_type)}</span>
         </div>
-        <a href="${file.url}" class="file-download" target="_blank" download="${escapeHtml(file.original_name)}">${t('download')}</a>
+        <a href="javascript:void(0)" class="file-download" onclick="forceDownload('${fullUrl}', '${escapeHtml(file.original_name)}')">${t('download')}</a>
       </div>
     `;
+  }
+
+  function formatAudioTime(seconds) {
+    if (isNaN(seconds) || !isFinite(seconds)) return "0:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  }
+
+  function initAudioPlayers(container) {
+    const players = container.querySelectorAll('.custom-audio-player');
+    players.forEach(player => {
+      const audio = player.querySelector('audio');
+      const progress = player.querySelector('.audio-progress');
+      const timeDisplay = player.querySelector('.audio-time');
+      const playBtn = player.querySelector('.audio-play-btn');
+      const timeline = player.querySelector('.audio-timeline');
+
+      let isDragging = false;
+
+      audio.addEventListener('loadedmetadata', () => {
+        timeDisplay.textContent = formatAudioTime(audio.duration);
+      });
+
+      audio.addEventListener('timeupdate', () => {
+        if (isDragging) return;
+        const percent = (audio.currentTime / audio.duration) * 100;
+        progress.style.width = `${percent || 0}%`;
+        timeDisplay.textContent = formatAudioTime(audio.currentTime);
+      });
+
+      audio.addEventListener('ended', () => {
+        playBtn.innerHTML = '▶';
+        progress.style.width = '0%';
+        timeDisplay.textContent = formatAudioTime(audio.duration);
+      });
+
+      playBtn.addEventListener('click', () => {
+        if (audio.paused) {
+          // Pause others
+          document.querySelectorAll('.custom-audio-player audio').forEach(a => {
+            if (a !== audio) {
+              a.pause();
+              const btn = a.parentElement.querySelector('.audio-play-btn');
+              if (btn) btn.innerHTML = '▶';
+            }
+          });
+          audio.play().catch(e => console.error("Playback failed", e));
+          playBtn.innerHTML = '⏸';
+        } else {
+          audio.pause();
+          playBtn.innerHTML = '▶';
+        }
+      });
+
+      let dragPercent = 0;
+
+      function updateTimelineVisual(e) {
+        const rect = timeline.getBoundingClientRect();
+        let percent = (e.clientX - rect.left) / rect.width;
+        percent = Math.max(0, Math.min(1, percent));
+        dragPercent = percent;
+        progress.style.width = `${percent * 100}%`;
+        if (audio.duration) {
+          timeDisplay.textContent = formatAudioTime(percent * audio.duration);
+        }
+      }
+
+      timeline.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        updateTimelineVisual(e);
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        updateTimelineVisual(e);
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (isDragging) {
+          isDragging = false;
+          if (audio.duration) {
+            audio.currentTime = dragPercent * audio.duration;
+          }
+        }
+      });
+    });
   }
 
   function renderSystem(content) {
@@ -345,6 +477,7 @@
   }
 
   function renderOnlineList(users) {
+    if (!onlineList) return;
     onlineList.innerHTML = users.map(u => `
       <li>
         <span class="online-dot"></span>
@@ -378,7 +511,8 @@
           if (!cacheUser.last_message && activeSidebarTab === 'chats') {
             needsRerender = true;
           }
-          cacheUser.last_message = content;
+          cacheUser.last_message = content || t('file_preview');
+          if (unread) cacheUser.has_unread = true;
         }
         if (needsRerender) {
           renderDmListBase();
@@ -391,6 +525,15 @@
     // Check if it's a Group
     else if (roomStr && roomStr.startsWith('group_')) {
       const groupId = roomStr.substring(6);
+      
+      if (allGroupsCache) {
+        const cacheGroup = allGroupsCache.find(g => g.id == groupId);
+        if (cacheGroup) {
+          cacheGroup.last_message = content || t('file_preview');
+          if (unread) cacheGroup.has_unread = true;
+        }
+      }
+
       li = document.querySelector(`#group-list li[data-group="${CSS.escape(groupId)}"]`);
       badgeId = `unread-group-${CSS.escape(groupId)}`;
     }
@@ -532,7 +675,7 @@
           <span class="dm-username">${escapeHtml(user.username)}</span>
           <span class="dm-last-message">${escapeHtml(lastMsgText)}</span>
         </div>
-        <span class="dm-unread" id="unread-${CSS.escape(user.username)}" style="display:none"></span>
+        <span class="dm-unread" id="unread-${CSS.escape(user.username)}" style="display:${user.has_unread ? 'inline-block' : 'none'}"></span>
       `;
       li.addEventListener('click', () => openDm(user.username));
       dmList.appendChild(li);
@@ -591,7 +734,7 @@
           <span class="dm-username">${escapeHtml(group.name)}</span>
           <span class="dm-last-message">${escapeHtml(lastMsgText)}</span>
         </div>
-        <span class="dm-unread" id="unread-group-${group.id}" style="display:none"></span>
+        <span class="dm-unread" id="unread-group-${group.id}" style="display:${group.has_unread ? 'inline-block' : 'none'}"></span>
       `;
       li.addEventListener('click', () => openGroup(group.id, group.name, group.creator_id));
       groupList.appendChild(li);
@@ -622,9 +765,13 @@
     // Clear unread badge
     const badge = document.getElementById(`unread-${CSS.escape(peer)}`);
     if (badge) { badge.style.display = 'none'; badge.textContent = ''; }
+    if (allUsersCache) {
+      const u = allUsersCache.find(u => u.username === peer);
+      if (u) u.has_unread = false;
+    }
 
     // Update header
-    headerIcon.textContent = '✉';
+    headerIcon.innerHTML = `<div class="avatar">${avatarInitial(peer)}</div>`;
     headerRoom.textContent = peer;
     headerMeta.textContent = t('direct_message_meta');
     messageInput.placeholder = `${t('message_at')}${peer}…`;
@@ -661,9 +808,13 @@
 
     const badge = document.getElementById(`unread-group-${groupId}`);
     if (badge) { badge.style.display = 'none'; badge.textContent = ''; }
+    if (allGroupsCache) {
+      const g = allGroupsCache.find(g => g.id == groupId);
+      if (g) g.has_unread = false;
+    }
 
     // Update header
-    headerIcon.textContent = '👥';
+    headerIcon.innerHTML = `<div class="avatar">${avatarInitial(groupName)}</div>`;
     headerRoom.textContent = groupName;
     headerMeta.textContent = t('group_chat_meta');
     messageInput.placeholder = `${t('message_group')}${groupName}…`;
@@ -802,6 +953,8 @@
           updateSidebarItem(data.room, data.content, true);
         }
         
+      } else if (data.type === 'chat_deleted') {
+        handleChatDeleted(data.room);
       } else if (data.type === 'system') {
         // Show system messages for the currently open room, except join/leave noise
         if (data.room === currentRoom) {
@@ -1152,10 +1305,11 @@
           if (deleteGroupModal) deleteGroupModal.style.display = 'none';
           showToast(t('toast_group_deleted'), 'success');
           messagesArea.innerHTML = '';
-          onlineList.innerHTML = '';
+          headerIcon.innerHTML = '';
           headerRoom.textContent = t('select_chat_header');
           headerMeta.textContent = '';
           messageInput.setAttribute('disabled', 'true');
+          if (btnAttach) btnAttach.setAttribute('disabled', 'true');
           btnAddMember.style.display = 'none';
           btnLeaveGroup.style.display = 'none';
           btnDeleteGroup.style.display = 'none';
@@ -1163,6 +1317,7 @@
           currentRoomType = 'dm'; // fallback
           currentDmPeer = null;
           currentRoom = null;
+          updateChatLayoutState();
           if (socket) {
             socket.onclose = null;
             socket.close();
@@ -1175,6 +1330,7 @@
           showToast(error.detail || t('toast_group_del_err'), 'error');
         }
       } catch (e) {
+        console.error('Delete group error:', e);
         showToast(t('toast_group_del_ex'), 'error');
       } finally {
         btnConfirmDeleteGroup.disabled = false;
@@ -1184,7 +1340,6 @@
   
   btnLeaveGroup.addEventListener('click', async () => {
     if (!currentGroupId) return;
-    // We need my user_id to correctly hit the endpoint. Wait, let's fetch my profile first to get my ID.
     try {
       const meRes = await fetch(`${API}/api/me`, { headers: { Authorization: `Bearer ${TOKEN}` } });
       const meData = await meRes.json();
@@ -1196,10 +1351,11 @@
       if (res.ok || res.status === 204) {
         showToast(t('toast_left_group'), 'success');
         messagesArea.innerHTML = '';
-        onlineList.innerHTML = '';
+        headerIcon.innerHTML = '';
         headerRoom.textContent = t('select_chat_header');
         headerMeta.textContent = '';
         messageInput.setAttribute('disabled', 'true');
+        if (btnAttach) btnAttach.setAttribute('disabled', 'true');
         btnAddMember.style.display = 'none';
         btnLeaveGroup.style.display = 'none';
         btnDeleteGroup.style.display = 'none';
@@ -1207,6 +1363,7 @@
         currentRoomType = 'dm'; // fallback
         currentDmPeer = null;
         currentRoom = null;
+        updateChatLayoutState();
         if (socket) {
           socket.onclose = null;
           socket.close();
@@ -1219,6 +1376,7 @@
         showToast(error.detail || t('toast_leave_err'), 'error');
       }
     } catch (e) {
+      console.error('Leave group error:', e);
       showToast(t('toast_leave_ex'), 'error');
     }
   });
@@ -1388,6 +1546,35 @@
     }
   }
 
+  // ── Chat deleted handler ─────────────────────────────
+  function handleChatDeleted(roomStr) {
+    if (!roomStr) return;
+
+    // Find peer username from room string
+    let peerUsername = null;
+    for (const u of (allUsersCache || [])) {
+      if (dmRoomName(ME, u.username) === roomStr) {
+        peerUsername = u.username;
+        break;
+      }
+    }
+
+    // Clear last_message from cache so it disappears from Chats tab
+    if (peerUsername) {
+      const cached = allUsersCache.find(u => u.username === peerUsername);
+      if (cached) cached.last_message = null;
+    }
+
+    // If this deleted chat is currently open — clear the messages area
+    if (currentRoom && (currentRoom.toLowerCase() === roomStr || currentRoom === roomStr)) {
+      messagesArea.innerHTML = '';
+      showEmptyPlaceholder();
+    }
+
+    // Re-render sidebar to remove the chat entry
+    renderDmListBase();
+  }
+
   // ── Presence WebSocket (separate, always-on) ──────────
   function connectPresence() {
     if (presenceSocket) {
@@ -1409,6 +1596,27 @@
       try { data = JSON.parse(event.data); } catch { return; }
       if (data.type === 'user_status') {
         handleUserStatus(data);
+      } else if (data.type === 'message') {
+        // A DM arrived while the user is not in that room.
+        // Update sidebar: if room === currentRoom render it, otherwise show unread badge.
+        if (data.room && data.room !== currentRoom) {
+          // Make sure this contact appears in allUsersCache with a last_message
+          // so it shows up in the Chats tab after the sidebar re-renders.
+          const senderUsername = data.sender && data.sender.username;
+          if (senderUsername && senderUsername !== ME) {
+            const cached = allUsersCache.find(u => u.username === senderUsername);
+            if (cached) {
+              cached.last_message = data.content || t('file_preview');
+            }
+          }
+          updateSidebarItem(data.room, data.content, true);
+          // If we're on the chats tab and the item didn't exist yet, re-render
+          if (activeSidebarTab === 'chats') {
+            renderDmListBase();
+          }
+        }
+      } else if (data.type === 'chat_deleted') {
+        handleChatDeleted(data.room);
       }
     };
 

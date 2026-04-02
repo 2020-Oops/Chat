@@ -31,33 +31,44 @@ async def upload_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # 1. Check file size (approximate from header if available, or read)
-    # UploadFile doesn't always have size, so we might need to read it
-    file_content = await file.read()
-    file_size = len(file_content)
-    
-    if file_size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File is too large (Max 10MB)"
-        )
-    
-    # 2. Check user quota
-    current_storage = await get_user_total_storage(db, current_user.id)
-    if current_storage + file_size > MAX_USER_QUOTA:
+    # 0. Check extension for security (stored XSS prevention)
+    ext = os.path.splitext(file.filename)[1].lower()
+    ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.pdf', '.txt', '.mp4', '.mp3', '.wav', '.ogg', '.doc', '.docx', '.zip'}
+    if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Storage quota exceeded (100MB)"
+            detail=f"File extension {ext} not allowed for security reasons."
         )
-    
-    # 3. Generate unique filename
-    ext = os.path.splitext(file.filename)[1]
+
+    # 1. Generate unique filename
     stored_name = f"{uuid.uuid4()}{ext}"
     file_path = os.path.join(UPLOAD_DIR, stored_name)
+    file_size = 0
     
-    # 4. Save file to disk
-    async with aiofiles.open(file_path, "wb") as f:
-        await f.write(file_content)
+    try:
+        # 2. Extract chunks and check single file size
+        async with aiofiles.open(file_path, "wb") as f:
+            while chunk := await file.read(1024 * 1024):  # 1MB
+                file_size += len(chunk)
+                if file_size > MAX_FILE_SIZE:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail="File is too large (Max 10MB)"
+                    )
+                await f.write(chunk)
+        
+        # 3. Check user quota
+        current_storage = await get_user_total_storage(db, current_user.id)
+        if current_storage + file_size > MAX_USER_QUOTA:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Storage quota exceeded (100MB)"
+            )
+            
+    except Exception as e:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise e
     
     # 5. Save metadata to DB
     new_file = FileModel(
